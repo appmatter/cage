@@ -592,6 +592,8 @@ func linkMounts(id, shareRoot string, mounts []runtimeplugin.PathSpec) error {
 }
 
 // remountNestedRO bind-remounts nested guest paths read-only without rm/symlink.
+// Must use remount,bind,ro — plain remount,ro remounts the underlying virtiofs share
+// and makes the whole parent tree EROFS.
 func remountNestedRO(id string, mounts []runtimeplugin.PathSpec) error {
 	for _, m := range mounts {
 		guest := guestClean(m.Guest)
@@ -601,7 +603,7 @@ test -e %q
 if ! mountpoint -q %q; then
   sudo mount --bind %q %q
 fi
-sudo mount -o remount,ro %q`,
+sudo mount -o remount,bind,ro %q`,
 			guest, guest, guest, guest, guest,
 		)
 		if err := tartExec(id, nil, false, false, "sh", "-c", script); err != nil {
