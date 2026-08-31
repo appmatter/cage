@@ -628,9 +628,18 @@ fi`,
 }
 
 // applyDenyMasks obscures guest paths that match fs.deny under an allowed parent mount.
-// Directories get a mode-0 tmpfs; files get an empty ro bind from shareRoot.
+// Directories get a mode-0 tmpfs; files get an empty ro bind (source outside virtiofs).
 func applyDenyMasks(id, shareRoot string, guests []string) error {
-	emptyFile := filepath.ToSlash(filepath.Join(shareRoot, "deny-empty"))
+	_ = shareRoot
+	const emptyDir = "/var/tmp/cage-deny"
+	const emptyFile = "/var/tmp/cage-deny/empty"
+	prep := fmt.Sprintf(
+		`sudo mkdir -p %q && sudo tee %q </dev/null >/dev/null && sudo chmod 644 %q`,
+		emptyDir, emptyFile, emptyFile,
+	)
+	if err := tartExec(id, nil, false, false, "sh", "-c", prep); err != nil {
+		return fmt.Errorf("deny mask prep: %w", err)
+	}
 	for _, g := range guests {
 		guest := guestClean(g)
 		if guest == "/" || guest == "" {
@@ -650,13 +659,10 @@ if [ -d "$g" ]; then
   exit 0
 fi
 if [ -f "$g" ] || [ -L "$g" ]; then
-  sudo mkdir -p %q
-  sudo touch %q
-  sudo chmod 000 %q
   sudo mount --bind %q "$g"
   sudo mount -o remount,bind,ro "$g"
 fi`,
-			guest, shareRoot, emptyFile, emptyFile, emptyFile,
+			guest, emptyFile,
 		)
 		if err := tartExec(id, nil, false, false, "sh", "-c", script); err != nil {
 			return fmt.Errorf("deny mask %s: %w", guest, err)
