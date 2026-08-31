@@ -221,6 +221,12 @@ func applyGuestFS(spec runtimeplugin.Spec) error {
 			}
 		}
 	}
+	if len(spec.DenyMasks) > 0 {
+		progress("masking %d denied paths under mounts", len(spec.DenyMasks))
+		if err := applyDenyMasks(spec.ID, shareRoot, spec.DenyMasks); err != nil {
+			return err
+		}
+	}
 	if len(spec.Copies) > 0 {
 		progress("applying %d copies", len(spec.Copies))
 	}
@@ -616,6 +622,44 @@ fi`,
 		}
 		if err := tartExec(id, nil, false, false, "sh", "-c", script); err != nil {
 			return fmt.Errorf("bind nested %s <- %s: %w", guest, src, err)
+		}
+	}
+	return nil
+}
+
+// applyDenyMasks obscures guest paths that match fs.deny under an allowed parent mount.
+// Directories get a mode-0 tmpfs; files get an empty ro bind from shareRoot.
+func applyDenyMasks(id, shareRoot string, guests []string) error {
+	emptyFile := filepath.ToSlash(filepath.Join(shareRoot, "deny-empty"))
+	for _, g := range guests {
+		guest := guestClean(g)
+		if guest == "/" || guest == "" {
+			continue
+		}
+		script := fmt.Sprintf(
+			`set -e
+g=%q
+if [ ! -e "$g" ]; then
+  exit 0
+fi
+if mountpoint -q "$g"; then
+  exit 0
+fi
+if [ -d "$g" ]; then
+  sudo mount -t tmpfs -o size=1m,mode=000,uid=0,gid=0 cage-deny "$g"
+  exit 0
+fi
+if [ -f "$g" ] || [ -L "$g" ]; then
+  sudo mkdir -p %q
+  sudo touch %q
+  sudo chmod 000 %q
+  sudo mount --bind %q "$g"
+  sudo mount -o remount,bind,ro "$g"
+fi`,
+			guest, shareRoot, emptyFile, emptyFile, emptyFile,
+		)
+		if err := tartExec(id, nil, false, false, "sh", "-c", script); err != nil {
+			return fmt.Errorf("deny mask %s: %w", guest, err)
 		}
 	}
 	return nil

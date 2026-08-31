@@ -56,7 +56,8 @@ fs:
         - "**/.cage/**"
         - "**/cage.*.yaml"
 
-secrets: {}
+secrets:
+  plugins: {}
 
 network:
   plugins: {}

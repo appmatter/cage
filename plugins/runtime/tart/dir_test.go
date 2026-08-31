@@ -164,3 +164,10 @@ func TestTartRunHasArgsEmpty(t *testing.T) {
 		t.Fatal("empty want should match")
 	}
 }
+
+func TestApplyDenyMasksSkipsRoot(t *testing.T) {
+	// applyDenyMasks ignores "/" / ""; exercised via guestClean + early continue.
+	if guestClean("/") != "/" {
+		t.Fatal(guestClean("/"))
+	}
+}

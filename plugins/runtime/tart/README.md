@@ -44,3 +44,4 @@ Binary lands as `.cage/.cache/plugins/runtime/tart/cage-runtime-tart.cageplugin`
 - Nested mounts (guest path under another mount):
   - `permission: ro` — own virtiofs `--dir` + bind, then `remount,bind,ro` (host honored; plain `remount,ro` would EROFS the parent share)
   - `permission: rw` (or omit) — own virtiofs `--dir` + `mount --bind` over the path (no `rm`; works under an `ro` parent). Nested path must already exist when the parent is ro.
+- `fs.deny` masks (guest paths under a parent mount): directory → mode-0 tmpfs; file → empty ro bind. Applied after mounts.

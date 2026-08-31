@@ -104,11 +104,11 @@ Filter composition: run ascending priority; **all must allow** (any deny wins). 
 
 ### Secrets ordering
 
-Map / document order does not matter. Aliases must be unique across plugins. Stores may declare `uses: [other-alias]` and/or `{{ secrets.<alias>.<var> }}` in their own config; Cage topo-resolves and **fails on cycles**. Host reachability (`aws.sso_profile`) is separate from secret deps.
+Map / document order does not matter. Seat keys under `secrets.plugins` are unique. Stores may declare `uses: [other-seat]` and/or `{{ secrets.<seat>.<var> }}` in their own config; Cage topo-resolves and **fails on cycles**. Host reachability (`aws.sso_profile`) is separate from secret deps.
 
 ## Config mirrors contexts
 
-Core keys and installable seats are separated: plugins live under `<context>.plugins` (except `secrets`, where every child is a plugin).
+Core keys and installable seats are separated: plugins live under `<context>.plugins`.
 
 ```yaml
 version: 1
@@ -141,8 +141,9 @@ fs:
       allow: [OPENAI_API_KEY]
 
 secrets:
-  onepassword:
+  plugins:
     personal-op:
+      plugin: onepassword
       vars: { … }
 
 network:
@@ -176,12 +177,12 @@ network:
 | `fs.mount` / `copy` / `deny` / `layout` | `fs`                          | core                                                                  |
 | `fs.plugins.mention`                    | `fs`                          | `mention` plugin                                                      |
 | `fs.plugins.secrets_scanner`            | `fs`                          | `secrets_scanner` plugin                                              |
-| `secrets.<plugin>.<alias>`              | `secrets`                     | secrets plugins (DAG, no priority)                                    |
+| `secrets.plugins.<seat>`                | `secrets`                     | secrets plugins (DAG, no priority)                                    |
 | `network.plugins.egress`                | `network.traffic` → filter    | `egress` plugin                                                       |
 | `network.plugins.http-proxy`            | `network.traffic` → terminate | `http-proxy` plugin                                                   |
 | `network.plugins.postgres-proxy`        | `network.traffic` → terminate | `postgres-proxy` plugin                                               |
 
-Secret templates: `{{ secrets.<alias>.<var> }}` — alias unique across plugins (prefer on protocol proxies; allowed in `runtime.env` but weaker).
+Secret templates: `{{ secrets.<seat>.<var> }}` — prefer on protocol proxies; allowed in `runtime.env` but weaker.
 
 ## Plugins
 
@@ -235,15 +236,13 @@ network:
 
 `package` is optional when the seat key / `plugin:` already matches a unique lock `name`. Never last-install-wins. Plugin manifests must not set priority (or override another package’s seat silently).
 
-Secrets: map key is the install name — use `--name` when installing a colliding secrets plugin (no `package` under each alias).
-
 | Plugin                                 | Context / stage               | Config                           |
 | -------------------------------------- | ----------------------------- | -------------------------------- |
 | `tart` / `incus` / `hyperv` / `docker` | `runtime` / backend           | `runtime.plugins.<seat>`         |
 | `pi-agent` / …                         | `runtime` / harness           | `runtime.plugins.<seat>`         |
 | `egress`                               | `network.traffic` / filter    | `network.plugins.egress`         |
 | `http-proxy` / `postgres-proxy` / …    | `network.traffic` / terminate | `network.plugins.<plugin>`       |
-| `onepassword` / …                      | `secrets`                     | `secrets.<plugin>` (no priority) |
+| `onepassword` / …                      | `secrets`                     | `secrets.plugins.<seat>` (no priority) |
 | `mention`                              | `fs`                          | `fs.plugins.mention`             |
 | `secrets_scanner`                      | `fs`                          | `fs.plugins.secrets_scanner`     |
 

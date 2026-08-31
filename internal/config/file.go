@@ -16,8 +16,13 @@ type File struct {
 	Extends string                            `yaml:"extends"`
 	Runtime Runtime                           `yaml:"runtime"`
 	FS      FS                                `yaml:"fs"`
-	Secrets map[string]map[string]SecretStore `yaml:"secrets"` // plugin → alias → store
-	Network Network                           `yaml:"network"`
+	Secrets Secrets `yaml:"secrets"`
+	Network Network `yaml:"network"`
+}
+
+// Secrets is the secrets context: installable store seats under plugins.
+type Secrets struct {
+	Plugins map[string]SecretStore `yaml:"plugins"` // seat → store
 }
 
 // Runtime is the runtime context: plugins (backend seats), workdir, guest env, hooks.
@@ -137,12 +142,23 @@ type Mention struct {
 	Exclude []string `yaml:"exclude"`
 }
 
-// SecretStore is one secrets.<plugin>.<alias> entry (plugin is the parent map key).
+// SecretStore is one secrets.plugins.<seat> entry.
 // No priority — secrets resolve by dependency DAG (uses + template refs).
 type SecretStore struct {
-	Uses   []string          `yaml:"uses,omitempty"`
-	Region string            `yaml:"region,omitempty"`
-	Vars   map[string]string `yaml:"vars"`
+	Plugin  string            `yaml:"plugin,omitempty"`  // short install name; omit = seat name
+	Package string            `yaml:"package,omitempty"` // optional source override
+	Uses    []string          `yaml:"uses,omitempty"`
+	Account string            `yaml:"account,omitempty"` // onepassword: op --account
+	Region  string            `yaml:"region,omitempty"`  // aws_sm
+	Vars    map[string]string `yaml:"vars"`
+}
+
+// PluginID returns the installable short name for this seat.
+func (s SecretStore) PluginID(seat string) string {
+	if s.Plugin != "" {
+		return s.Plugin
+	}
+	return seat
 }
 
 // Network is the network context: optional proxy settings, installable plugins, hooks.
@@ -373,13 +389,14 @@ func (h *HookAction) UnmarshalYAML(value *yaml.Node) error {
 
 // Resolved is the post-merge view used by inspect / start.
 type Resolved struct {
-	Path    string
-	Runtime Runtime
-	Network Network
-	Layout  Layout
-	Mounts  []ResolvedPath
-	Copies  []ResolvedPath
-	Deny    []string
+	Path      string
+	Runtime   Runtime
+	Network   Network
+	Layout    Layout
+	Mounts    []ResolvedPath
+	Copies    []ResolvedPath
+	Deny      []string
+	DenyMasks []string // guest paths to obscure under allowed mounts (exist on host at resolve)
 }
 
 // ResolvedPath is one mount or copy after merge.
@@ -450,6 +467,7 @@ func LoadResolved(projectRoot, path, goos string) (Resolved, error) {
 	if err := checkDeny(r); err != nil {
 		return Resolved{}, err
 	}
+	r.DenyMasks = computeDenyMasks(r)
 	if err := ValidateFile(merged); err != nil {
 		return Resolved{}, err
 	}
@@ -586,7 +604,7 @@ func mergeFiles(base, over File) File {
 	}
 	out.FS.Hooks = mergeHookEvents(base.FS.Hooks, over.FS.Hooks)
 	out.Runtime.Hooks = mergeHookEvents(base.Runtime.Hooks, over.Runtime.Hooks)
-	out.Secrets = mergeSecretPlugins(base.Secrets, over.Secrets)
+	out.Secrets.Plugins = mergeSecretPlugins(base.Secrets.Plugins, over.Secrets.Plugins)
 	if over.Network.Proxy.Disabled != nil {
 		v := *over.Network.Proxy.Disabled
 		out.Network.Proxy.Disabled = &v
@@ -632,38 +650,53 @@ func mergeFiles(base, over File) File {
 	return out
 }
 
-func mergeSecretPlugins(base, over map[string]map[string]SecretStore) map[string]map[string]SecretStore {
+func mergeSecretPlugins(base, over map[string]SecretStore) map[string]SecretStore {
 	if len(base) == 0 && len(over) == 0 {
 		return nil
 	}
-	out := map[string]map[string]SecretStore{}
-	for plugin, aliases := range base {
-		out[plugin] = map[string]SecretStore{}
-		for alias, store := range aliases {
-			out[plugin][alias] = store
-		}
+	out := map[string]SecretStore{}
+	for seat, store := range base {
+		out[seat] = cloneSecretStore(store)
 	}
-	for plugin, aliases := range over {
-		if out[plugin] == nil {
-			out[plugin] = map[string]SecretStore{}
+	for seat, store := range over {
+		cur := out[seat]
+		if store.Plugin != "" {
+			cur.Plugin = store.Plugin
 		}
-		for alias, store := range aliases {
-			cur := out[plugin][alias]
-			if store.Uses != nil {
-				cur.Uses = append([]string{}, store.Uses...)
+		if store.Package != "" {
+			cur.Package = store.Package
+		}
+		if store.Uses != nil {
+			cur.Uses = append([]string{}, store.Uses...)
+		}
+		if store.Account != "" {
+			cur.Account = store.Account
+		}
+		if store.Region != "" {
+			cur.Region = store.Region
+		}
+		if store.Vars != nil {
+			if cur.Vars == nil {
+				cur.Vars = map[string]string{}
 			}
-			if store.Region != "" {
-				cur.Region = store.Region
+			for k, v := range store.Vars {
+				cur.Vars[k] = v
 			}
-			if store.Vars != nil {
-				if cur.Vars == nil {
-					cur.Vars = map[string]string{}
-				}
-				for k, v := range store.Vars {
-					cur.Vars[k] = v
-				}
-			}
-			out[plugin][alias] = cur
+		}
+		out[seat] = cur
+	}
+	return out
+}
+
+func cloneSecretStore(s SecretStore) SecretStore {
+	out := s
+	if s.Uses != nil {
+		out.Uses = append([]string{}, s.Uses...)
+	}
+	if s.Vars != nil {
+		out.Vars = map[string]string{}
+		for k, v := range s.Vars {
+			out.Vars[k] = v
 		}
 	}
 	return out
@@ -1000,18 +1033,104 @@ func checkDeny(r Resolved) error {
 	return nil
 }
 
+// computeDenyMasks lists guest paths under allowed mounts that match fs.deny and exist on the host.
+// Explicit mount guest roots are skipped (checkDeny already blocked denied mount hosts).
+func computeDenyMasks(r Resolved) []string {
+	if len(r.Deny) == 0 || len(r.Mounts) == 0 {
+		return nil
+	}
+	mounted := make(map[string]bool, len(r.Mounts))
+	for _, m := range r.Mounts {
+		mounted[filepath.Clean(m.Guest)] = true
+	}
+	var masks []string
+	seen := map[string]bool{}
+	add := func(guest string) {
+		guest = filepath.ToSlash(filepath.Clean(guest))
+		if guest == "" || guest == "." || mounted[guest] || seen[guest] {
+			return
+		}
+		for _, m := range masks {
+			if guest == m || strings.HasPrefix(guest, m+"/") {
+				return
+			}
+		}
+		seen[guest] = true
+		masks = append(masks, guest)
+	}
+	for _, m := range r.Mounts {
+		st, err := os.Stat(m.Host)
+		if err != nil || !st.IsDir() {
+			continue
+		}
+		hostRoot := m.Host
+		for _, d := range r.Deny {
+			d = filepath.ToSlash(strings.TrimPrefix(strings.TrimSpace(d), "./"))
+			if d == "" {
+				continue
+			}
+			if strings.ContainsAny(d, "*?[") {
+				_ = filepath.Walk(hostRoot, func(path string, info os.FileInfo, err error) error {
+					if err != nil || path == hostRoot {
+						return nil
+					}
+					rel, err := filepath.Rel(hostRoot, path)
+					if err != nil || rel == "." || strings.HasPrefix(rel, "..") {
+						return nil
+					}
+					relSlash := filepath.ToSlash(rel)
+					if !matchDeny(path, []string{d}) && !matchDeny(relSlash, []string{d}) {
+						return nil
+					}
+					add(filepath.ToSlash(filepath.Join(m.Guest, relSlash)))
+					if info.IsDir() {
+						return filepath.SkipDir
+					}
+					return nil
+				})
+				continue
+			}
+			cand := filepath.Join(hostRoot, filepath.FromSlash(d))
+			if _, err := os.Stat(cand); err != nil {
+				continue
+			}
+			rel, err := filepath.Rel(hostRoot, cand)
+			if err != nil || rel == "." || strings.HasPrefix(rel, "..") {
+				continue
+			}
+			add(filepath.ToSlash(filepath.Join(m.Guest, filepath.ToSlash(rel))))
+		}
+	}
+	sort.Strings(masks)
+	return masks
+}
+
 func matchDeny(host string, denies []string) bool {
 	base := filepath.Base(host)
+	hostSlash := filepath.ToSlash(host)
 	for _, d := range denies {
-		d = filepath.ToSlash(d)
-		if d == base || d == host || strings.HasSuffix(filepath.ToSlash(host), "/"+strings.TrimPrefix(d, "./")) {
+		d = filepath.ToSlash(strings.TrimPrefix(strings.TrimSpace(d), "./"))
+		if d == "" {
+			continue
+		}
+		if d == base || d == hostSlash || strings.HasSuffix(hostSlash, "/"+d) {
 			return true
 		}
-		if strings.Contains(d, "*") {
-			if ok, _ := filepath.Match(d, base); ok {
+		if !strings.ContainsAny(d, "*?[") {
+			continue
+		}
+		if ok, _ := filepath.Match(d, base); ok {
+			return true
+		}
+		if ok, _ := filepath.Match(d, hostSlash); ok {
+			return true
+		}
+		if strings.HasPrefix(d, "**/") {
+			rest := strings.TrimPrefix(d, "**/")
+			if ok, _ := filepath.Match(rest, base); ok {
 				return true
 			}
-			if ok, _ := filepath.Match(d, filepath.ToSlash(host)); ok {
+			if ok, _ := filepath.Match(rest, hostSlash); ok {
 				return true
 			}
 		}
