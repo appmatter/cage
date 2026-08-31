@@ -1,0 +1,18 @@
+# Example profile. Merges onto cage.yaml (extends optional when name is cage.*.yaml).
+extends: cage.yaml
+
+fs:
+  mount:
+    docs: ./docs
+  plugins:
+    mention:
+      include:
+        - "docs/**"
+        - "README.md"
+      exclude:
+        - "**/.git/**"
+        - "**/.cage"
+        - "**/.cage/**"
+        - "**/node_modules/**"
+  deny:
+    - node_modules

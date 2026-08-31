@@ -1,0 +1,75 @@
+{
+  "plugins": [
+    {
+      "kind": "runtime",
+      "name": "tart",
+      "command": "cage-runtime-tart.cageplugin",
+      "source": "plugins/runtime/tart",
+      "pin": "local"
+    },
+    {
+      "kind": "network",
+      "name": "egress",
+      "command": "cage-network-egress.cageplugin",
+      "source": "plugins/network/egress",
+      "pin": "local"
+    },
+    {
+      "kind": "network",
+      "name": "http-proxy",
+      "command": "cage-network-http-proxy.cageplugin",
+      "source": "plugins/network/http-proxy",
+      "pin": "local"
+    },
+    {
+      "kind": "runtime",
+      "name": "pi-agent",
+      "command": "cage-runtime-pi-agent.cageplugin",
+      "source": "plugins/runtime/pi-agent",
+      "pin": "local",
+      "stage": "harness",
+      "hooks": [
+        "before_bake",
+        "on_start",
+        "on_attach_shell"
+      ],
+      "commands": [
+        "init"
+      ],
+      "egress_hints": [
+        {
+          "host": "api.github.com",
+          "reason": "pi tool downloads / GitHub API"
+        },
+        {
+          "host": "github.com",
+          "reason": "pi release assets"
+        },
+        {
+          "host": "*.githubusercontent.com",
+          "reason": "pi release asset CDN"
+        },
+        {
+          "host": "pi.dev",
+          "reason": "pi updates / registry"
+        },
+        {
+          "host": "*.pi.dev",
+          "reason": "pi subdomains"
+        },
+        {
+          "host": "registry.npmjs.org",
+          "reason": "npm packages (bake / pi install)"
+        },
+        {
+          "host": "api.openai.com",
+          "reason": "OpenAI models (if used)"
+        },
+        {
+          "host": "api.anthropic.com",
+          "reason": "Anthropic models (if used)"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+# Headless fixture for scripts/test-network.sh (image substituted at run time).
+version: 1
+
+runtime:
+  plugins:
+    tart:
+      priority: 1
+      image: __IMAGE__
+      graphics: false
+  workdir: /workspace
+
+fs:
+  layout:
+    mode: flat
+  mount: {}
+  copy: {}
+  deny: []
+
+network:
+  proxy:
+    disabled: false
+  plugins:
+    egress:
+      allow:
+        - host: 1.1.1.1
+          port: 53

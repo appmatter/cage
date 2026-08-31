@@ -1,0 +1,163 @@
+# Example base. Init may write starter values; missing matching runtime.plugins seat/image fails at load.
+# Profiles: cage.<name>.yaml → fs mount/copy keyed on target; deny keyed on string; see way forward.md
+version: 1
+
+runtime:
+  plugins:
+    tart:
+      priority: 1
+      image: ghcr.io/cirruslabs/ubuntu:latest
+      # graphics: true
+      on-create:
+        - .cage/scripts/on-create.sh
+      # bake: [.cage/scripts/bake-example.sh]  # optional operator extras; pi-agent attaches via before_bake
+    pi-agent:
+      version: "latest"
+      # agent_dir: .cage/plugins/runtime/custom  # optional; default .cage/plugins/runtime/pi-agent
+      # packages:
+      #   - npm:@acme/pi-tools@1.0.0
+    incus:
+      priority: 2
+      image: ubuntu/24.04
+    hyperv:
+      priority: 3
+      image: Ubuntu
+  workdir: /workspace
+  # Injected into the sandbox. Prefer placeholders + proxy rewrite; {{ secrets.* }} in env is allowed but weaker.
+  env:
+    APP_MODE: dev
+    ANTHROPIC_API_KEY: "fake-key-for-agent"
+    OPENAI_API_KEY: "fake-key-for-agent"
+
+fs:
+  layout:
+    mode: flat
+  # Paths that exist in this repo. Init may write other mounts for a real app.
+  mount:
+    docs: ./docs
+  copy: {}
+  deny:
+    # Remove .git here and add an fs.mount for .git if the agent needs native git.
+    - .git
+    # Host secrets — seed via fs.copy (e.g. .env.example → .env), never mount the real file.
+    - .env
+    - .ssh
+    - credentials
+    # Keep cage config off the agent FS so it cannot rewrite sandbox policy.
+    - .cage
+    - .cage/cage.yaml
+    - .cage/cage.*.yaml
+    - "**/*.pem"
+    - "**/*.key"
+  plugins:
+    mention:
+      include:
+        - "**/*"
+      exclude:
+        - "**/.git/**"
+        - "**/.cage"
+        - "**/.cage/**"
+        - "**/cage.*.yaml"
+        - "**/node_modules/**"
+        - "**/.env"
+        - "**/.env.*"
+        - "**/*.pem"
+        - "**/credentials.json"
+    secrets_scanner:
+      on_find: warn
+      # Accept known placeholders / paths so they don't warn.
+      allow:
+        - OPENAI_API_KEY
+        - ANTHROPIC_API_KEY
+        - path: .env.example
+
+# Named secret stores. Nested by plugin, then alias. Values never in yaml — refs only.
+# Templates: {{ secrets.<alias>.<var> }} (alias unique across plugins).
+secrets:
+  onepassword:
+    personal-op:
+      vars:
+        OPENAI_API_KEY: op://Engineering/openai/api-key
+    organization-op:
+      vars:
+        ANTHROPIC_API_KEY: op://organization/team/docs-agent/anthropic/api-key
+  keychain:
+    local-keys:
+      vars:
+        # Name-based stores: value may equal the var name (lookup id).
+        GROQ_API_KEY: GROQ_API_KEY
+  aws_sm:
+    dev-sm:
+      region: eu-west-2
+      vars:
+        DB_USERNAME: arn:aws:secretsmanager:eu-west-2:123:secret:cage/db-user
+        DB_PASSWORD: arn:aws:secretsmanager:eu-west-2:123:secret:cage/db-pass
+
+network:
+  proxy:
+    logging: true # CONNECT JSONL → .cage/run/<id>/proxy.log (cage vm logs -f)
+  plugins:
+    # Sandbox outbound allowlist. Default-deny when set.
+    egress:
+      deny_response:
+        http: true # plain-HTTP DENY → 403 body agents can read
+      allow:
+        - host: "*.google.com" # google.com + www.google.com + …
+        - host: "*.example.com" # google.com + www.google.com + …
+          method: GET
+        - host: registry.npmjs.org
+          port: 443
+        - host: api.github.com
+          port: 443
+        - host: github.com
+          port: 443
+        - host: "*.githubusercontent.com"
+          port: 443
+        - host: pi.dev
+          port: 443
+        - host: "*.pi.dev"
+          port: 443
+        - host: api.openai.com
+          port: 443
+          method: POST
+          path: /v1/chat/completions
+        - host: api.openai.com
+          port: 443
+          method: POST
+          path: /v1/responses
+        - host: api.anthropic.com
+          port: 443
+          method: POST
+          path: /v1/messages
+        - host: development-postgres.eu-west-2.amazonaws.com
+          port: 5432
+    # Host-side protocol proxies. Secrets stay on host.
+    # Prefer profile overrides over conditionals in templates.
+    # ≥2 terminate plugins → explicit unique priority (operator only).
+    http-proxy:
+      priority: 1
+      openai:
+        listen: 18080
+        url: https://api.openai.com/v1
+        headers:
+          Authorization: "Bearer {{ env.OPENAI_API_KEY }}"
+      anthropic:
+        listen: 18081
+        url: https://api.anthropic.com/v1
+        headers:
+          Authorization: "Bearer {{ env.ANTHROPIC_API_KEY }}"
+          anthropic-version: "2023-06-01"
+    postgres-proxy:
+      priority: 2
+      development-postgres:
+        listen: 5432
+        host: development-postgres.eu-west-2.amazonaws.com
+        port: 5432
+        database: development-postgres
+        username: "{{ secrets.dev-sm.DB_USERNAME }}"
+        password: "{{ secrets.dev-sm.DB_PASSWORD }}"
+        ssl: require
+        # How the host proxy reaches private AWS (not the agent protocol).
+        aws:
+          sso_profile: project-dev-developer
+          region: eu-west-2

@@ -1,0 +1,16 @@
+{
+  "stage": "harness",
+  "hooks": ["before_bake", "on_start", "on_attach_shell"],
+  "commands": ["init"],
+  "egress_hints": [
+    {"host": "api.github.com", "reason": "pi tool downloads / GitHub API"},
+    {"host": "github.com", "reason": "pi release assets"},
+    {"host": "*.githubusercontent.com", "reason": "pi release asset CDN"},
+    {"host": "pi.dev", "reason": "pi updates / registry"},
+    {"host": "*.pi.dev", "reason": "pi subdomains"},
+    {"host": "registry.npmjs.org", "reason": "npm packages (bake / pi install)"},
+    {"host": "api.openai.com", "reason": "OpenAI models (if used)"},
+    {"host": "api.anthropic.com", "reason": "Anthropic models (if used)"}
+  ]
+}
+ 

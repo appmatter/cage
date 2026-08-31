@@ -1,0 +1,123 @@
+version: "3"
+
+vars:
+  CONFIG: .cage/cage.yaml
+  VM_ID: cage-vm
+
+tasks:
+  default:
+    desc: Reinstall CLI+tart plugin, recreate VM, start
+    cmds:
+      - task: reset
+
+  install:
+    desc: Install cage CLI to GOPATH/bin
+    cmds:
+      - go install ./cmd/cage
+
+  plugin:
+    desc: Build and install tart + pi-agent + egress + http-proxy plugins into .cage/.cache/plugins
+    cmds:
+      - cage plugin install -l ./plugins/runtime/tart
+      - cage plugin install -l ./plugins/runtime/pi-agent
+      - cage plugin install -l ./plugins/network/egress
+      - cage plugin install -l ./plugins/network/http-proxy
+
+  reinstall:
+    desc: Install CLI + runtime/network plugins
+    cmds:
+      - task: install
+      - task: plugin
+
+  inspect:
+    desc: Show resolved config
+    cmds:
+      - cage config inspect --config {{.CONFIG}}
+
+  delete:
+    desc: Delete VM
+    cmds:
+      - cage vm delete --config {{.CONFIG}} --id {{.VM_ID}}
+
+  create:
+    desc: Create VM from config image
+    cmds:
+      - cage vm create --config {{.CONFIG}} --id {{.VM_ID}}
+
+  start:
+    desc: Start VM (mounts, copies, lifecycle scripts)
+    cmds:
+      - cage vm start --config {{.CONFIG}} --id {{.VM_ID}}
+
+  start:follow:
+    desc: Start VM then follow proxy CONNECT log (needs network.proxy.logging)
+    cmds:
+      - cage vm start --config {{.CONFIG}} --id {{.VM_ID}} -f
+
+  stop:
+    desc: Stop VM
+    cmds:
+      - cage vm stop --config {{.CONFIG}} --id {{.VM_ID}}
+
+  status:
+    desc: VM status
+    cmds:
+      - cage vm status --config {{.CONFIG}} --id {{.VM_ID}}
+
+  logs:
+    desc: Follow host proxy CONNECT log
+    cmds:
+      - cage vm logs --id {{.VM_ID}} -f
+
+  exec:
+    desc: "Guest shell — task exec (interactive) or task exec -- uname -a"
+    cmds:
+      - cage vm exec --config {{.CONFIG}} --id {{.VM_ID}} {{if .CLI_ARGS}}-t -- {{.CLI_ARGS}}{{end}}
+
+  reset:
+    desc: Delete VM, reinstall, create, start
+    cmds:
+      - task: delete
+      - task: reinstall
+      - task: create
+      - task: start
+
+  reset:follow:
+    desc: Like reset, then follow proxy log
+    cmds:
+      - task: delete
+      - task: reinstall
+      - task: create
+      - task: start:follow
+
+  recreate:
+    desc: Delete, create, start (no reinstall)
+    cmds:
+      - task: delete
+      - task: create
+      - task: start
+
+  bake:list:
+    desc: List derived bake images
+    cmds:
+      - cage bake list
+
+  bake:delete:
+    desc: "Delete bake image(s) — task bake:delete -- <hash> or task bake:delete -- --all"
+    cmds:
+      - cage bake delete {{.CLI_ARGS}}
+
+  test:network:
+    desc: Headless proxy+softnet smoke (scripts/test-network.sh); skips if tart/softnet missing
+    cmds:
+      - bash scripts/test-network.sh
+
+  test:network:http-proxy:
+    desc: Host http-proxy + egress + mock authed API (no VM)
+    cmds:
+      - go test ./internal/network/ -run TestHTTPProxyHostAuthIntegration -count=1 -v
+
+  test:network:ipv6:
+    desc: Softnet host-only must block IPv6 direct egress (scripts/test-network-ipv6.sh)
+    cmds:
+      - bash scripts/test-network-ipv6.sh
