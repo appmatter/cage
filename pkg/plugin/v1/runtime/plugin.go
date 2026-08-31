@@ -33,6 +33,7 @@ type Spec struct {
 	Image        string
 	Workdir      string
 	Graphics     bool // when true, runtime may show a UI (tart omits --no-graphics)
+	Env          map[string]string // runtime.env only — never host os.Environ
 	Mounts       []PathSpec
 	Copies       []PathSpec
 	OnCreate     []string // abs host script paths; plugin chooses interpreter

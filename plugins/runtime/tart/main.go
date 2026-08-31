@@ -113,10 +113,19 @@ func (t *Tart) Start(spec runtimeplugin.Spec) error {
 }
 
 // ensureRunning starts tart run if needed. graphics=false → --no-graphics.
+// If the VM is already running without the requested ExtraRunArgs (e.g. softnet),
+// it is stopped and relaunched so network lock args actually apply.
 func (t *Tart) ensureRunning(spec runtimeplugin.Spec, graphics bool) error {
 	st, err := t.Status(spec.ID)
 	if err != nil {
 		return err
+	}
+	if st.State == "running" && len(spec.ExtraRunArgs) > 0 && !tartRunHasArgs(spec.ID, spec.ExtraRunArgs) {
+		progress("restarting %s to apply ExtraRunArgs", spec.ID)
+		if err := t.Stop(spec.ID); err != nil {
+			return err
+		}
+		st.State = "stopped"
 	}
 	var runDied <-chan error
 	if st.State != "running" {
@@ -142,6 +151,36 @@ func (t *Tart) ensureRunning(spec runtimeplugin.Spec, graphics bool) error {
 	}
 	progress("waiting for guest agent (up to %s)", readyTimeout)
 	return waitReady(spec.ID, runDied)
+}
+
+// tartRunHasArgs reports whether a live tart process for id includes all want args.
+func tartRunHasArgs(id string, want []string) bool {
+	if len(want) == 0 {
+		return true
+	}
+	out, err := exec.Command("ps", "-ax", "-o", "args=").Output()
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		if !strings.Contains(line, "tart") || !strings.Contains(line, " run") {
+			continue
+		}
+		if !strings.Contains(line, id) {
+			continue
+		}
+		ok := true
+		for _, w := range want {
+			if !strings.Contains(line, w) {
+				ok = false
+				break
+			}
+		}
+		if ok {
+			return true
+		}
+	}
+	return false
 }
 
 func applyGuestFS(spec runtimeplugin.Spec) error {
@@ -483,8 +522,24 @@ func applyCopies(id string, copies []runtimeplugin.PathSpec) error {
 		if err != nil {
 			return fmt.Errorf("copy %s -> %s: %w", c.Host, c.Guest, err)
 		}
+		mode := copyMode(c.Permission)
+		if err := tartExec(id, nil, false, false, "sudo", "chmod", mode, c.Guest); err != nil {
+			return fmt.Errorf("copy chmod %s: %w", c.Guest, err)
+		}
+		// Default tart Linux images use admin; fall back to root:root if missing.
+		if err := tartExec(id, nil, false, false, "sudo", "sh", "-c",
+			fmt.Sprintf(`if id -u admin >/dev/null 2>&1; then chown admin:admin %q; else chown root:root %q; fi`, c.Guest, c.Guest)); err != nil {
+			return fmt.Errorf("copy chown %s: %w", c.Guest, err)
+		}
 	}
 	return nil
+}
+
+func copyMode(permission string) string {
+	if permission == "ro" {
+		return "0444"
+	}
+	return "0644"
 }
 
 const onCreateMarker = "/var/lib/cage/on-create.done"

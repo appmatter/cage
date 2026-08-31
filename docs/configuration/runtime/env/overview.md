@@ -1,6 +1,6 @@
 # `runtime.env`
 
-Injected into the sandbox process environment.
+Injected into the sandbox process environment. **Only keys listed under `runtime.env` are sent to the guest** — the host process environment is never copied (secrets/keys on the host stay on the host unless you explicitly map them here).
 
 **Prefer** placeholders here and `{{ secrets.* }}` on protocol proxies under `network.plugins` so real values stay on the host. Templating secrets into `runtime.env` is allowed when a tool cannot go through a proxy — understand that puts the value in the guest.
 

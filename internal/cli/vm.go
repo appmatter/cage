@@ -10,6 +10,7 @@ import (
 
 	"github.com/appmatter/cage/internal/bake"
 	"github.com/appmatter/cage/internal/config"
+	"github.com/appmatter/cage/internal/guestenv"
 	"github.com/appmatter/cage/internal/host"
 	"github.com/appmatter/cage/internal/hooks"
 	"github.com/appmatter/cage/internal/network"
@@ -76,16 +77,9 @@ func newVMStartCmd() *cobra.Command {
 				return fmt.Errorf("start -f requires network.proxy.logging: true")
 			}
 			proxyOn := r.Network.ProxyEnabled()
-			var proxyState network.ProxyState
 			if proxyOn {
-				st, err := startHostProxy(".", spec.ID, r)
-				if err != nil {
-					return err
-				}
-				proxyState = st
 				argsSoft, err := network.SoftnetHostOnlyArgs()
 				if err != nil {
-					_ = network.StopDetachedProxy(".", spec.ID)
 					return err
 				}
 				spec.ExtraRunArgs = argsSoft
@@ -93,6 +87,7 @@ func newVMStartCmd() *cobra.Command {
 			termlog.CLI("start %s (plugin=%s mounts=%d copies=%d proxy=%v)",
 				spec.ID, backendName, len(spec.Mounts), len(spec.Copies), proxyOn)
 			hooks.WarnMissingEgress(".", r, termlog.CLI)
+			var proxyState network.ProxyState
 			err = withRuntime(backendName, func(b runtimeplugin.Backend) error {
 				if err := applyBake(&spec, r, b); err != nil {
 					return err
@@ -104,13 +99,25 @@ func newVMStartCmd() *cobra.Command {
 				if err := b.Start(spec); err != nil {
 					return err
 				}
-				if proxyOn && (proxyState.HTTPPort > 0 || proxyState.Port > 0) {
+				if proxyOn {
+					guestIPs, err := discoverGuestSources(backendName, spec.ID)
+					if err != nil {
+						return err
+					}
+					st, err := startHostProxy(".", spec.ID, r, guestIPs)
+					if err != nil {
+						return err
+					}
+					proxyState = st
 					if err := injectGuestProxyEnv(b, spec.ID, proxyState, r.Network.MITMEnabled()); err != nil {
 						return err
 					}
 					if r.Network.LoggingEnabled() {
 						probeSoftnetDrop(".", spec.ID, b)
 					}
+				}
+				if err := injectGuestRuntimeEnv(b, spec.ID, spec.Env); err != nil {
+					return err
 				}
 				if err := hooks.RunHook(".", r.Runtime, runtimeplugin.HookOnStart, termlog.CLI, hooks.RunHookOpts{
 					ConfigPath: r.Path,
@@ -255,13 +262,15 @@ func newVMExecCmd() *cobra.Command {
 			if id == "" {
 				id = defaultVMID()
 			}
-			_ = withRuntime(backendName, func(b runtimeplugin.Backend) error {
+			if err := withRuntime(backendName, func(b runtimeplugin.Backend) error {
 				return hooks.RunHook(".", r.Runtime, runtimeplugin.HookOnAttachShell, termlog.CLI, hooks.RunHookOpts{
 					ConfigPath: r.Path,
 					Backend:    b,
 					VMID:       id,
 				})
-			})
+			}); err != nil {
+				return err
+			}
 			// TTY must use the host terminal FDs. go-plugin SyncStdout is a pipe,
 			// which makes tart exec -t crash (ioctl TIOCGWINSZ).
 			if tty {
@@ -333,6 +342,7 @@ func loadSpec(cmd *cobra.Command, configPath, id string) (runtimeplugin.Spec, st
 		Image:     r.Runtime.Image,
 		Workdir:   r.Runtime.Workdir,
 		Graphics:  r.Runtime.Graphics,
+		Env:       copyStringMap(r.Runtime.Env),
 		OnCreate:  append([]string{}, r.Runtime.OnCreate...),
 		OnStart:   append([]string{}, r.Runtime.OnStart...),
 		OnDestroy: append([]string{}, r.Runtime.OnDestroy...),
@@ -367,7 +377,7 @@ func applyBake(spec *runtimeplugin.Spec, r config.Resolved, b runtimeplugin.Back
 	return nil
 }
 
-func startHostProxy(projectRoot, vmID string, r config.Resolved) (network.ProxyState, error) {
+func startHostProxy(projectRoot, vmID string, r config.Resolved, allowedSources []string) (network.ProxyState, error) {
 	bin, err := os.Executable()
 	if err != nil {
 		return network.ProxyState{}, err
@@ -401,19 +411,21 @@ func startHostProxy(projectRoot, vmID string, r config.Resolved) (network.ProxyS
 		}
 	}
 	st, err := network.StartDetachedProxy(projectRoot, vmID, bin, network.StartDetachedProxyOpts{
-		EgressYAML:    egressYAML,
-		HTTPProxyYAML: httpProxyYAML,
-		Logging:       r.Network.LoggingEnabled(),
-		ConfigPath:    r.Path,
-		DenyHTTP:      denyHTTP,
-		DenyMessage:   denyMsg,
-		Softnet:       true,
-		MITM:          r.Network.MITMEnabled(),
+		EgressYAML:     egressYAML,
+		HTTPProxyYAML:  httpProxyYAML,
+		Logging:        r.Network.LoggingEnabled(),
+		ConfigPath:     r.Path,
+		DenyHTTP:       denyHTTP,
+		DenyMessage:    denyMsg,
+		Softnet:        true,
+		MITM:           r.Network.MITMEnabled(),
+		AllowedSources: allowedSources,
 	})
 	if err != nil {
 		return network.ProxyState{}, err
 	}
-	termlog.CLI("host HTTP proxy on port %d (socks %d, pid %d, mitm=%v)", st.HTTPPort, st.Port, st.PID, r.Network.MITMEnabled())
+	termlog.CLI("host HTTP proxy on port %d (socks %d, pid %d, mitm=%v, allow=%v)",
+		st.HTTPPort, st.Port, st.PID, r.Network.MITMEnabled(), allowedSources)
 	if ports, err := network.ReadHTTPProxyState(projectRoot, vmID); err == nil && len(ports) > 0 {
 		for name, p := range ports {
 			termlog.CLI("http-proxy %s on port %d", name, p)
@@ -459,6 +471,49 @@ func injectGuestProxyEnv(b runtimeplugin.Backend, vmID string, st network.ProxyS
 		return fmt.Errorf("guest http-proxy env: %w", err)
 	}
 	return nil
+}
+
+func discoverGuestSources(backendName, vmID string) ([]string, error) {
+	switch backendName {
+	case "tart":
+		ips, err := network.DiscoverTartGuestIPv4(vmID)
+		if err != nil {
+			return nil, err
+		}
+		out := make([]string, 0, len(ips))
+		for _, ip := range ips {
+			out = append(out, ip.String())
+		}
+		termlog.CLI("guest source allow %v", out)
+		return out, nil
+	default:
+		return nil, fmt.Errorf("guest IP discovery not implemented for runtime %q", backendName)
+	}
+}
+
+func injectGuestRuntimeEnv(b runtimeplugin.Backend, vmID string, env map[string]string) error {
+	if len(env) == 0 {
+		return nil
+	}
+	if err := b.Exec(vmID, runtimeplugin.ExecOpts{
+		Argv:  []string{"sudo", "sh", "-s"},
+		Stdin: []byte(guestenv.InstallScript(env)),
+	}); err != nil {
+		return fmt.Errorf("guest runtime.env: %w", err)
+	}
+	return nil
+}
+
+// copyStringMap copies operator runtime.env only — never os.Environ.
+func copyStringMap(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
 }
 
 // probeSoftnetDrop tries direct guest egress; under host-only softnet it should fail.

@@ -28,6 +28,7 @@ type Server struct {
 	HTTPPeekWait time.Duration // after CONNECT success; 0 = 250ms; <0 = skip
 	DenyHTTP     bool          // inject HTTP 403 on post-peek DENY
 	DenyMessage  string        // body when DenyHTTP; empty → DefaultDenyHTTPMessage
+	Allow        *SourceAllowlist
 
 	denyMu sync.RWMutex
 
@@ -40,6 +41,9 @@ func (s *Server) ListenAndServe(addr string) error {
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return err
+	}
+	if s.Allow != nil {
+		ln = AllowlistListener(ln, s.Allow)
 	}
 	s.mu.Lock()
 	s.Listener = ln

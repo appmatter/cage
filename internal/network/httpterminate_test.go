@@ -40,9 +40,14 @@ func TestHTTPTerminateAllowAndDeny(t *testing.T) {
 		Header:       map[string][]string{"Authorization": {"Bearer x"}},
 	}}
 
+	allow := &SourceAllowlist{}
+	allow.SetStrings([]string{"127.0.0.1"})
+
 	var logs []TrafficEvent
 	ht := &HTTPTerminate{
 		Terminate: term,
+		BindHost:  "127.0.0.1",
+		Allow:     allow,
 		Pipeline: NewPipeline([]FilterSeat{{
 			Priority: 1,
 			Filter:   &stubFilter{allow: true, reason: "ok"},
@@ -67,6 +72,8 @@ func TestHTTPTerminateAllowAndDeny(t *testing.T) {
 
 	ht2 := &HTTPTerminate{
 		Terminate: term,
+		BindHost:  "127.0.0.1",
+		Allow:     allow,
 		Pipeline: NewPipeline([]FilterSeat{{
 			Priority: 1,
 			Filter:   &stubFilter{allow: false, reason: "nope"},

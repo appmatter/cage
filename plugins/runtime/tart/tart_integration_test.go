@@ -76,6 +76,18 @@ func TestIntegrationMountAndCopy(t *testing.T) {
 	if err != nil || strings.TrimSpace(copyOut) != "copied-ok" {
 		t.Fatalf("copy: out=%q err=%v", copyOut, err)
 	}
+	// rw copy should be writable by admin (not root-only).
+	statOut, err := tartExecOut(id, "stat", "-c", "%a %U", "/workspace/copied.txt")
+	if err != nil {
+		t.Fatalf("stat copy: %v", err)
+	}
+	statOut = strings.TrimSpace(statOut)
+	if !strings.HasPrefix(statOut, "644 ") {
+		t.Fatalf("copy mode want 644, got %q", statOut)
+	}
+	if !strings.Contains(statOut, "admin") && !strings.Contains(statOut, "root") {
+		t.Fatalf("copy owner unexpected: %q", statOut)
+	}
 }
 
 func tartHasImage(name string) bool {

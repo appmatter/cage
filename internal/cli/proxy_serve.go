@@ -29,6 +29,7 @@ func newProxyServeCmd() *cobra.Command {
 		denyMessage   string
 		softnet       bool
 		mitm          bool
+		allowIPs      []string
 	)
 	cmd := &cobra.Command{
 		Use:    "proxy-serve",
@@ -37,6 +38,9 @@ func newProxyServeCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if id == "" {
 				return fmt.Errorf("--id is required")
+			}
+			if len(allowIPs) == 0 {
+				return fmt.Errorf("--allow-ip is required (guest source address)")
 			}
 			var seats []network.FilterSeat
 			var closers []func()
@@ -98,17 +102,18 @@ func newProxyServeCmd() *cobra.Command {
 			}
 
 			opts := network.ServeProxyOpts{
-				ProjectRoot: projectRoot,
-				VMID:        id,
-				EgressPath:  egressPath,
-				ReadyPath:   readyPath,
-				Pipeline:    pipe,
-				Traffic:     traffic,
-				Reload:      reload,
-				DenyHTTP:    denyHTTP,
-				DenyMessage: denyMessage,
-				Softnet:     softnet,
-				MITM:        mitm,
+				ProjectRoot:    projectRoot,
+				VMID:           id,
+				EgressPath:     egressPath,
+				ReadyPath:      readyPath,
+				Pipeline:       pipe,
+				Traffic:        traffic,
+				Reload:         reload,
+				DenyHTTP:       denyHTTP,
+				DenyMessage:    denyMessage,
+				Softnet:        softnet,
+				MITM:           mitm,
+				AllowedSources: allowIPs,
 			}
 
 			if httpProxyPath != "" {
@@ -161,6 +166,7 @@ func newProxyServeCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&denyHTTP, "deny-http", false, "inject HTTP 403 on plain-HTTP egress DENY")
 	cmd.Flags().StringVar(&denyMessage, "deny-message", "", "body for --deny-http (default built-in)")
 	cmd.Flags().BoolVar(&mitm, "mitm", false, "HTTPS MITM on HTTP CONNECT (method/path + inject)")
+	cmd.Flags().StringArrayVar(&allowIPs, "allow-ip", nil, "guest IPv4 allowed to use this proxy (repeatable)")
 	return cmd
 }
 

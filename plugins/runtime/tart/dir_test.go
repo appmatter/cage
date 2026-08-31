@@ -77,3 +77,21 @@ func TestExtraRunArgsAppended(t *testing.T) {
 		}
 	}
 }
+
+func TestCopyMode(t *testing.T) {
+	if got := copyMode("rw"); got != "0644" {
+		t.Fatalf("rw=%q", got)
+	}
+	if got := copyMode("ro"); got != "0444" {
+		t.Fatalf("ro=%q", got)
+	}
+	if got := copyMode(""); got != "0644" {
+		t.Fatalf("default=%q", got)
+	}
+}
+
+func TestTartRunHasArgsEmpty(t *testing.T) {
+	if !tartRunHasArgs("any", nil) {
+		t.Fatal("empty want should match")
+	}
+}

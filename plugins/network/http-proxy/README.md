@@ -4,7 +4,7 @@
 
 With **HTTPS MITM** on (default when host proxy is on), the agent calls the real URL (`https://api.openai.com/...`). Cage matches `url` host, injects `headers`, runs [egress](../egress/README.md) `Check` with Method/Path, then dials upstream. No `CAGE_HTTP_*` rewrite required.
 
-Named `listen` ports still work as clear-HTTP reverse proxies (legacy / tools that cannot trust the guest CA).
+Named `listen` ports still work as clear-HTTP reverse proxies (legacy / tools that cannot trust the guest CA). Each VM’s proxy only accepts that guest’s source IP (peers cannot use each other’s inject endpoints).
 
 ## Shape
 

@@ -78,8 +78,12 @@ allow:
 	}
 
 	var logs []TrafficEvent
+	allow := &SourceAllowlist{}
+	allow.SetStrings([]string{"127.0.0.1"})
 	ht := &HTTPTerminate{
 		Terminate: httpClient.Terminate,
+		BindHost:  "127.0.0.1",
+		Allow:     allow,
 		Pipeline: NewPipeline([]FilterSeat{{
 			Priority: 1,
 			Filter:   egressClient.Filter,

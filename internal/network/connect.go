@@ -21,15 +21,16 @@ import (
 
 // HTTPProxyServer is a guest-facing HTTP CONNECT (+ plain HTTP) proxy with optional MITM.
 type HTTPProxyServer struct {
-	Pipeline     *Pipeline
-	Dial         DialFunc
-	OnTraffic    TrafficLogger
-	MITM         *MITM // nil → tunnel CONNECT without break
-	Terminate    netplugin.Terminate
-	HostToEP     map[string]string // lowercase hostname → http-proxy endpoint name
-	UpstreamTLS  *tls.Config       // nil → system roots; tests may set InsecureSkipVerify
-	DenyHTTP     bool
-	DenyMessage  string
+	Pipeline    *Pipeline
+	Dial        DialFunc
+	OnTraffic   TrafficLogger
+	MITM        *MITM // nil → tunnel CONNECT without break
+	Terminate   netplugin.Terminate
+	HostToEP    map[string]string // lowercase hostname → http-proxy endpoint name
+	UpstreamTLS *tls.Config       // nil → system roots; tests may set InsecureSkipVerify
+	DenyHTTP    bool
+	DenyMessage string
+	Allow       *SourceAllowlist
 
 	denyMu sync.RWMutex
 
@@ -43,6 +44,9 @@ func (s *HTTPProxyServer) ListenAndServe(addr string) error {
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return err
+	}
+	if s.Allow != nil {
+		ln = AllowlistListener(ln, s.Allow)
 	}
 	s.mu.Lock()
 	s.listener = ln

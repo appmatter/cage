@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -17,9 +18,11 @@ import (
 
 // ProxyState is written under .cage/run/<id>/proxy.json.
 type ProxyState struct {
-	PID      int `json:"pid"`
-	Port     int `json:"port"`      // SOCKS5
-	HTTPPort int `json:"http_port"` // HTTP CONNECT (+ MITM)
+	PID            int      `json:"pid"`
+	Port           int      `json:"port"`       // SOCKS5
+	HTTPPort       int      `json:"http_port"`  // HTTP CONNECT (+ MITM)
+	BindHost       string   `json:"bind_host,omitempty"`
+	AllowedSources []string `json:"allowed_sources,omitempty"` // guest IPv4s
 }
 
 // RunDir is .cage/run/<vmID> under projectRoot.
@@ -90,14 +93,15 @@ func ReadHTTPProxyState(projectRoot, vmID string) (HTTPProxyPorts, error) {
 
 // StartDetachedProxyOpts configures the detached proxy-serve child.
 type StartDetachedProxyOpts struct {
-	EgressYAML    []byte
-	HTTPProxyYAML []byte // nil/empty → no http-proxy
-	Logging       bool
-	ConfigPath    string
-	DenyHTTP      bool
-	DenyMessage   string
-	Softnet       bool // host-only softnet active; advisory SOFTNET log when Logging
-	MITM          bool // HTTPS break/re-encrypt (default on when proxy enabled)
+	EgressYAML     []byte
+	HTTPProxyYAML  []byte // nil/empty → no http-proxy
+	Logging        bool
+	ConfigPath     string
+	DenyHTTP       bool
+	DenyMessage    string
+	Softnet        bool // host-only softnet active; advisory SOFTNET log when Logging
+	MITM           bool // HTTPS break/re-encrypt (default on when proxy enabled)
+	AllowedSources []string // guest IPv4s allowed to dial this proxy
 }
 
 // StartDetachedProxy launches `cage proxy-serve` in the background and waits for proxy.json.
@@ -156,6 +160,11 @@ func StartDetachedProxy(projectRoot, vmID, cageBin string, opts StartDetachedPro
 	if opts.MITM {
 		args = append(args, "--mitm")
 	}
+	for _, ip := range opts.AllowedSources {
+		if ip != "" {
+			args = append(args, "--allow-ip", ip)
+		}
+	}
 	cmd := exec.Command(cageBin, args...)
 	cmd.Stdout = os.Stderr
 	cmd.Stderr = os.Stderr
@@ -211,7 +220,7 @@ func StopDetachedProxy(projectRoot, vmID string) error {
 	if err != nil {
 		return nil
 	}
-	if st.PID > 0 {
+	if st.PID > 0 && isCageProxyPID(st.PID) {
 		_ = syscall.Kill(st.PID, syscall.SIGTERM)
 		deadline := time.Now().Add(3 * time.Second)
 		for time.Now().Before(deadline) {
@@ -220,12 +229,30 @@ func StopDetachedProxy(projectRoot, vmID string) error {
 			}
 			time.Sleep(50 * time.Millisecond)
 		}
-		_ = syscall.Kill(st.PID, syscall.SIGKILL)
+		if isCageProxyPID(st.PID) {
+			_ = syscall.Kill(st.PID, syscall.SIGKILL)
+		}
 	}
 	_ = os.Remove(proxyStatePath(projectRoot, vmID))
 	_ = os.Remove(filepath.Join(RunDir(projectRoot, vmID), "proxy.ready"))
 	_ = os.Remove(httpProxyStatePath(projectRoot, vmID))
 	return nil
+}
+
+// isCageProxyPID reports whether pid looks like a live cage proxy-serve process.
+func isCageProxyPID(pid int) bool {
+	if pid <= 0 {
+		return false
+	}
+	if err := syscall.Kill(pid, 0); err != nil {
+		return false
+	}
+	out, err := exec.Command("ps", "-p", strconv.Itoa(pid), "-o", "args=").Output()
+	if err != nil {
+		return false
+	}
+	args := string(out)
+	return strings.Contains(args, "proxy-serve")
 }
 
 // EgressReloadOpts wires hot reload from cage config and/or egress.yaml.
@@ -238,29 +265,39 @@ type EgressReloadOpts struct {
 
 // ServeProxyOpts is the proxy-serve foreground bundle.
 type ServeProxyOpts struct {
-	ProjectRoot string
-	VMID        string
-	EgressPath  string
-	ReadyPath   string
-	Pipeline    *Pipeline
-	Traffic     TrafficLogger
-	Reload      EgressReloadOpts
-	DenyHTTP    bool
-	DenyMessage string
-	Softnet     bool
-	MITM        bool
-	HTTPProxy   *HTTPTerminate
-	HTTPListen  []HTTPEndpointListen
-	Terminate   netplugin.Terminate // for MITM Host inject (same as HTTPProxy.Terminate)
-	HostToEP    map[string]string
+	ProjectRoot    string
+	VMID           string
+	EgressPath     string
+	ReadyPath      string
+	Pipeline       *Pipeline
+	Traffic        TrafficLogger
+	Reload         EgressReloadOpts
+	DenyHTTP       bool
+	DenyMessage    string
+	Softnet        bool
+	MITM           bool
+	HTTPProxy      *HTTPTerminate
+	HTTPListen     []HTTPEndpointListen
+	Terminate      netplugin.Terminate // for MITM Host inject (same as HTTPProxy.Terminate)
+	HostToEP       map[string]string
+	AllowedSources []string // guest IPv4s; empty → deny all peers
 }
 
 // ServeProxyForeground runs SOCKS + HTTP CONNECT servers (used by proxy-serve child).
 func ServeProxyForeground(opts ServeProxyOpts) error {
-	srv := &Server{Pipeline: opts.Pipeline, OnTraffic: opts.Traffic, DenyHTTP: opts.DenyHTTP, DenyMessage: opts.DenyMessage}
+	if len(opts.AllowedSources) == 0 {
+		return fmt.Errorf("proxy-serve: at least one --allow-ip (guest source) is required")
+	}
+	allow := &SourceAllowlist{}
+	allow.SetStrings(opts.AllowedSources)
+	bindHost := ListenBindHost()
+	srv := &Server{
+		Pipeline: opts.Pipeline, OnTraffic: opts.Traffic,
+		DenyHTTP: opts.DenyHTTP, DenyMessage: opts.DenyMessage, Allow: allow,
+	}
 	errCh := make(chan error, 2)
 	go func() {
-		errCh <- srv.ListenAndServe("0.0.0.0:0")
+		errCh <- srv.ListenAndServe(ListenAddr(bindHost, 0))
 	}()
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
@@ -281,6 +318,7 @@ func ServeProxyForeground(opts ServeProxyOpts) error {
 		DenyMessage: opts.DenyMessage,
 		Terminate:   opts.Terminate,
 		HostToEP:    opts.HostToEP,
+		Allow:       allow,
 	}
 	if opts.MITM {
 		mitm, err := LoadOrCreateCA(opts.ProjectRoot)
@@ -291,7 +329,7 @@ func ServeProxyForeground(opts ServeProxyOpts) error {
 		httpSrv.MITM = mitm
 	}
 	go func() {
-		errCh <- httpSrv.ListenAndServe("0.0.0.0:0")
+		errCh <- httpSrv.ListenAndServe(ListenAddr(bindHost, 0))
 	}()
 	deadline = time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
@@ -308,6 +346,8 @@ func ServeProxyForeground(opts ServeProxyOpts) error {
 	defer httpSrv.Close()
 
 	if opts.HTTPProxy != nil && len(opts.HTTPListen) > 0 {
+		opts.HTTPProxy.BindHost = bindHost
+		opts.HTTPProxy.Allow = allow
 		opts.HTTPProxy.Pipeline = opts.Pipeline
 		opts.HTTPProxy.OnTraffic = opts.Traffic
 		opts.HTTPProxy.DenyHTTP = opts.DenyHTTP
@@ -322,7 +362,13 @@ func ServeProxyForeground(opts ServeProxyOpts) error {
 			return err
 		}
 	}
-	st := ProxyState{PID: os.Getpid(), Port: srv.Port(), HTTPPort: httpSrv.Port()}
+	st := ProxyState{
+		PID:            os.Getpid(),
+		Port:           srv.Port(),
+		HTTPPort:       httpSrv.Port(),
+		BindHost:       bindHost,
+		AllowedSources: append([]string{}, opts.AllowedSources...),
+	}
 	if err := WriteProxyState(opts.ProjectRoot, opts.VMID, st); err != nil {
 		_ = srv.Close()
 		return err

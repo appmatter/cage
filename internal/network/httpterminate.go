@@ -6,7 +6,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"strconv"
 	"sync"
 	"time"
 
@@ -27,6 +26,9 @@ type HTTPTerminate struct {
 	DenyHTTP    bool
 	DenyMessage string
 	Client      *http.Client
+	// BindHost overrides ListenBindHost for these listeners.
+	BindHost string
+	Allow    *SourceAllowlist
 
 	mu        sync.Mutex
 	listeners map[string]net.Listener
@@ -60,14 +62,14 @@ func (h *HTTPTerminate) Start(endpoints []HTTPEndpointListen) error {
 		client = &http.Client{Timeout: 120 * time.Second}
 	}
 	for _, ep := range endpoints {
-		addr := "0.0.0.0:" + strconv.Itoa(ep.Listen)
-		if ep.Listen <= 0 {
-			addr = "0.0.0.0:0"
-		}
+		addr := ListenAddr(h.BindHost, ep.Listen)
 		ln, err := net.Listen("tcp", addr)
 		if err != nil {
 			_ = h.Close()
-			return fmt.Errorf("http-proxy %s listen: %w", ep.Name, err)
+			return fmt.Errorf("http-proxy %s listen %s: %w", ep.Name, addr, err)
+		}
+		if h.Allow != nil {
+			ln = AllowlistListener(ln, h.Allow)
 		}
 		port := ln.Addr().(*net.TCPAddr).Port
 		h.mu.Lock()
