@@ -1,0 +1,50 @@
+version: 1
+
+runtime:
+  plugins:
+    tart:
+      priority: 1
+      image: ghcr.io/cirruslabs/ubuntu:latest
+      graphics: false
+  workdir: /workspace
+  # Placeholders in the guest; real keys stay on the host via http-proxy inject.
+  env:
+    OPENAI_API_KEY: fake-key-for-agent
+
+fs:
+  layout:
+    mode: flat
+  mount: {}
+  copy: {}
+  deny:
+    - .git
+    - .env
+    - .ssh
+    - credentials
+    - .cage
+    - .cage/cage.yaml
+    - .cage/cage.*.yaml
+    - "**/*.pem"
+    - "**/*.key"
+  plugins: {}
+
+# Seat name == install name → omit plugin:.
+secrets:
+  plugins:
+    onepassword:
+      vars:
+        OPENAI_API_KEY: op://Engineering/openai/api-key
+
+network:
+  plugins:
+    egress:
+      allow:
+        - host: api.openai.com
+          port: 443
+          method: POST
+          path: /v1/chat/completions
+    http-proxy:
+      openai:
+        url: https://api.openai.com/v1
+        headers:
+          Authorization: "Bearer {{ secrets.onepassword.OPENAI_API_KEY }}"

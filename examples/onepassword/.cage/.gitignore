@@ -1,0 +1,5 @@
+# Host-only artefacts (plugin binaries, bake stamps, MITM CA)
+.cache/
+# Host proxy / VM runtime state (pid, logs)
+run/
+*.cageplugin
