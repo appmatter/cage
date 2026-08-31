@@ -145,9 +145,10 @@ network:
           Authorization: "Bearer {{ env.OPENAI_API_KEY }}"
       anthropic:
         listen: 18081
-        url: https://api.anthropic.com/v1
+        url: https://api.anthropic.com
         headers:
-          Authorization: "Bearer {{ env.ANTHROPIC_API_KEY }}"
+          # Anthropic uses x-api-key (not Authorization). Guest sends fake from models.json; host injects real.
+          x-api-key: "{{ env.ANTHROPIC_API_KEY }}"
           anthropic-version: "2023-06-01"
     postgres-proxy:
       priority: 2
