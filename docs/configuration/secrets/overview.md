@@ -1,6 +1,6 @@
 # Secrets (`secrets`)
 
-Named stores nested by **plugin**, then alias. Resolved on the host. Config holds **references** only.
+Named stores under `secrets.plugins.<seat>`. Resolved on the host. Config holds **references** only.
 
 ## Docs
 
@@ -12,15 +12,16 @@ Named stores nested by **plugin**, then alias. Resolved on the host. Config hold
 
 ```yaml
 secrets:
-  <plugin>:
-    <alias>:
+  plugins:
+    <seat>:
+      plugin: onepassword # omit when seat name == install name
       vars:
         VAR_NAME: <ref>
 ```
 
-Prefer `{{ secrets.<alias>.<var> }}` on `network.plugins.http-proxy` / other protocol proxies (alias unique across plugins). Same templates in `runtime.env` are allowed but put real values in the guest.
+Prefer `{{ secrets.<seat>.<var> }}` on `network.plugins.http-proxy` / other protocol proxies. Same templates in `runtime.env` are allowed but put real values in the guest.
 
-**No plugin `priority`.** Resolve order is a dependency DAG from `uses` and/or `{{ secrets.<alias>.* }}` in store config — map key order does not matter; cycles fail. Host SSO (`aws.sso_profile`) is reachability, not a secret-store dep. The map key under `secrets` is the install name — use `cage plugin install … --name` if two packages share a short name.
+**No plugin `priority`.** Resolve order is a dependency DAG from `uses` and/or `{{ secrets.<seat>.* }}` in store config — map key order does not matter; cycles fail. Host SSO (`aws.sso_profile`) is reachability, not a secret-store dep. Seat key is the config alias; optional `plugin:` / `package:` match other contexts ([project structure](../../project-structure.md)).
 
 ## Related config
 
@@ -32,8 +33,18 @@ Prefer `{{ secrets.<alias>.<var> }}` on `network.plugins.http-proxy` / other pro
 
 ```yaml
 secrets:
-  onepassword:
-    personal-op:
+  plugins:
+    onepassword:
       vars:
         OPENAI_API_KEY: op://Engineering/openai/api-key
+
+network:
+  plugins:
+    http-proxy:
+      openai:
+        url: https://api.openai.com/v1
+        headers:
+          Authorization: "Bearer {{ secrets.onepassword.OPENAI_API_KEY }}"
 ```
+
+Project `.cage/cage.yaml` keeps `secrets.plugins: {}` until you add real seats. Multi-account: optional `account:` on a seat, or a second seat with `plugin: onepassword` (see [backends](./backends.md)).

@@ -309,6 +309,64 @@ fs:
 	}
 }
 
+func TestLoadResolvedDenyMasksUnderParent(t *testing.T) {
+	root := t.TempDir()
+	cageDir := filepath.Join(root, ".cage")
+	if err := os.MkdirAll(cageDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".env"), []byte("SECRET=1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "ok.txt"), []byte("ok\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "leak.pem"), []byte("key\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(cageDir, "cage.yaml"), `
+version: 1
+`+runtimeBlock+`
+fs:
+  mount:
+    ".": .
+    .git:
+      host: .git
+      permission: ro
+  deny:
+    - .env
+    - .cage
+    - "**/*.pem"
+`)
+	r, err := config.LoadResolved(root, filepath.Join(cageDir, "cage.yaml"), "darwin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{
+		"/workspace/.env":    true,
+		"/workspace/.cage":   true,
+		"/workspace/leak.pem": true,
+	}
+	got := map[string]bool{}
+	for _, g := range r.DenyMasks {
+		got[g] = true
+	}
+	for g := range want {
+		if !got[g] {
+			t.Fatalf("missing mask %q in %#v", g, r.DenyMasks)
+		}
+	}
+	if got["/workspace/.git"] {
+		t.Fatalf("explicit .git mount must not be masked: %#v", r.DenyMasks)
+	}
+	if got["/workspace/ok.txt"] {
+		t.Fatalf("ok.txt must not be masked: %#v", r.DenyMasks)
+	}
+}
+
 func TestLoadFileNestedPlugins(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "cage.yaml")
@@ -326,12 +384,13 @@ fs:
         - OPENAI_API_KEY
         - path: .env.example
 secrets:
-  onepassword:
+  plugins:
     personal-op:
+      plugin: onepassword
       vars:
         OPENAI_API_KEY: op://x
-  aws_sm:
     dev-sm:
+      plugin: aws_sm
       region: eu-west-2
       vars:
         DB_PASSWORD: arn:aws:sm:x
@@ -367,12 +426,12 @@ network:
 	if sc.Allow[0].Name != "OPENAI_API_KEY" || sc.Allow[1].Path != ".env.example" {
 		t.Fatalf("allow=%#v", sc.Allow)
 	}
-	op := f.Secrets["onepassword"]["personal-op"]
-	if op.Vars["OPENAI_API_KEY"] == "" {
-		t.Fatalf("secrets=%#v", f.Secrets)
+	op := f.Secrets.Plugins["personal-op"]
+	if op.Plugin != "onepassword" || op.Vars["OPENAI_API_KEY"] == "" {
+		t.Fatalf("secrets=%#v", f.Secrets.Plugins)
 	}
-	if f.Secrets["aws_sm"]["dev-sm"].Region != "eu-west-2" {
-		t.Fatalf("aws_sm=%#v", f.Secrets["aws_sm"])
+	if f.Secrets.Plugins["dev-sm"].Region != "eu-west-2" {
+		t.Fatalf("aws_sm=%#v", f.Secrets.Plugins["dev-sm"])
 	}
 	if f.Network.Plugins.HTTPProxy == nil || f.Network.Plugins.HTTPProxy.Endpoints["openai"].URL == "" {
 		t.Fatalf("http-proxy=%#v", f.Network.Plugins.HTTPProxy)

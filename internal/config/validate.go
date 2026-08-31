@@ -118,32 +118,22 @@ func seatNames(seats []pluginSeat) string {
 }
 
 func validateSecrets(f File) error {
-	type storeMeta struct {
-		plugin string
-		store  SecretStore
-	}
-	byAlias := map[string]storeMeta{}
-	for plugin, aliases := range f.Secrets {
-		for alias, store := range aliases {
-			if prev, ok := byAlias[alias]; ok {
-				return fmt.Errorf("secrets: alias %q used by %q and %q (must be unique across plugins)",
-					alias, prev.plugin, plugin)
-			}
-			byAlias[alias] = storeMeta{plugin: plugin, store: store}
-		}
+	bySeat := f.Secrets.Plugins
+	if len(bySeat) == 0 {
+		return nil
 	}
 
-	// deps[alias] = aliases it depends on
+	// deps[seat] = seats it depends on
 	deps := map[string][]string{}
-	for alias, meta := range byAlias {
+	for seat, store := range bySeat {
 		seen := map[string]bool{}
 		var list []string
 		add := func(dep string) error {
-			if dep == alias {
-				return fmt.Errorf("secrets.%s.%s: depends on itself", meta.plugin, alias)
+			if dep == seat {
+				return fmt.Errorf("secrets.plugins.%s: depends on itself", seat)
 			}
-			if _, ok := byAlias[dep]; !ok {
-				return fmt.Errorf("secrets.%s.%s: unknown dependency %q", meta.plugin, alias, dep)
+			if _, ok := bySeat[dep]; !ok {
+				return fmt.Errorf("secrets.plugins.%s: unknown dependency %q", seat, dep)
 			}
 			if !seen[dep] {
 				seen[dep] = true
@@ -151,19 +141,19 @@ func validateSecrets(f File) error {
 			}
 			return nil
 		}
-		for _, u := range meta.store.Uses {
+		for _, u := range store.Uses {
 			if err := add(u); err != nil {
 				return err
 			}
 		}
-		for _, v := range meta.store.Vars {
+		for _, v := range store.Vars {
 			for _, m := range secretTemplateRef.FindAllStringSubmatch(v, -1) {
 				if err := add(m[1]); err != nil {
 					return err
 				}
 			}
 		}
-		deps[alias] = list
+		deps[seat] = list
 	}
 
 	const (
@@ -189,13 +179,13 @@ func validateSecrets(f File) error {
 		color[n] = black
 		return nil
 	}
-	aliases := make([]string, 0, len(byAlias))
-	for a := range byAlias {
-		aliases = append(aliases, a)
+	seats := make([]string, 0, len(bySeat))
+	for s := range bySeat {
+		seats = append(seats, s)
 	}
-	sort.Strings(aliases)
-	for _, a := range aliases {
-		if err := visit(a, nil); err != nil {
+	sort.Strings(seats)
+	for _, s := range seats {
+		if err := visit(s, nil); err != nil {
 			return err
 		}
 	}

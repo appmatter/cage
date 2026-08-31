@@ -16,12 +16,12 @@ runtime:
       # agent_dir: .cage/plugins/runtime/custom  # optional; default .cage/plugins/runtime/pi-agent
       # packages:
       #   - npm:@acme/pi-tools@1.0.0
-    incus:
-      priority: 2
-      image: ubuntu/24.04
-    hyperv:
-      priority: 3
-      image: Ubuntu
+    # incus:
+    #   priority: 2
+    #   image: ubuntu/24.04
+    # hyperv:
+    #   priority: 3
+    #   image: Ubuntu
   workdir: /workspace
   # Injected into the sandbox. Prefer placeholders + proxy rewrite; {{ secrets.* }} in env is allowed but weaker.
   env:
@@ -44,56 +44,37 @@ fs:
     - .env
     - .ssh
     - credentials
-    # Keep cage config off the agent FS so it cannot rewrite sandbox policy.
-    # (Root mount still exposes .cage contents unless the backend filters; do not add a .cage mount target.)
+    # Keep cage config off the agent FS (masked under the root mount at start).
     - .cage
     - .cage/cage.yaml
     - .cage/cage.*.yaml
     - "**/*.pem"
     - "**/*.key"
   plugins:
-    mention:
-      include:
-        - "**/*"
-      exclude:
-        - "**/.git/**"
-        - "**/.cage"
-        - "**/.cage/**"
-        - "**/cage.*.yaml"
-        - "**/node_modules/**"
-        - "**/.env"
-        - "**/.env.*"
-        - "**/*.pem"
-        - "**/credentials.json"
-    secrets_scanner:
-      on_find: warn
-      # Accept known placeholders / paths so they don't warn.
-      allow:
-        - OPENAI_API_KEY
-        - ANTHROPIC_API_KEY
-        - path: .env.example
+    # mention:
+    #   include:
+    #     - "**/*"
+    #   exclude:
+    #     - "**/.git/**"
+    #     - "**/.cage"
+    #     - "**/.cage/**"
+    #     - "**/cage.*.yaml"
+    #     - "**/node_modules/**"
+    #     - "**/.env"
+    #     - "**/.env.*"
+    #     - "**/*.pem"
+    #     - "**/credentials.json"
+    # secrets_scanner:
+    #   on_find: warn
+    #   # Accept known placeholders / paths so they don't warn.
+    #   allow:
+    #     - OPENAI_API_KEY
+    #     - ANTHROPIC_API_KEY
+    #     - path: .env.example
 
-# Named secret stores. Nested by plugin, then alias. Values never in yaml — refs only.
-# Templates: {{ secrets.<alias>.<var> }} (alias unique across plugins).
+# Secret stores (see docs/configuration/secrets). Refs only — no values in yaml.
 secrets:
-  onepassword:
-    personal-op:
-      vars:
-        OPENAI_API_KEY: op://Engineering/openai/api-key
-    organization-op:
-      vars:
-        ANTHROPIC_API_KEY: op://organization/team/docs-agent/anthropic/api-key
-  keychain:
-    local-keys:
-      vars:
-        # Name-based stores: value may equal the var name (lookup id).
-        GROQ_API_KEY: GROQ_API_KEY
-  aws_sm:
-    dev-sm:
-      region: eu-west-2
-      vars:
-        DB_USERNAME: arn:aws:secretsmanager:eu-west-2:123:secret:cage/db-user
-        DB_PASSWORD: arn:aws:secretsmanager:eu-west-2:123:secret:cage/db-pass
+  plugins: {}
 
 network:
   proxy:
@@ -150,17 +131,17 @@ network:
           # Anthropic uses x-api-key (not Authorization). Guest sends fake from models.json; host injects real.
           x-api-key: "{{ env.ANTHROPIC_API_KEY }}"
           anthropic-version: "2023-06-01"
-    postgres-proxy:
-      priority: 2
-      development-postgres:
-        listen: 5432
-        host: development-postgres.eu-west-2.amazonaws.com
-        port: 5432
-        database: development-postgres
-        username: "{{ secrets.dev-sm.DB_USERNAME }}"
-        password: "{{ secrets.dev-sm.DB_PASSWORD }}"
-        ssl: require
-        # How the host proxy reaches private AWS (not the agent protocol).
-        aws:
-          sso_profile: project-dev-developer
-          region: eu-west-2
+    # postgres-proxy:
+    #   priority: 2
+    #   development-postgres:
+    #     listen: 5432
+    #     host: development-postgres.eu-west-2.amazonaws.com
+    #     port: 5432
+    #     database: development-postgres
+    #     username: "{{ env.DB_USERNAME }}"
+    #     password: "{{ env.DB_PASSWORD }}"
+    #     ssl: require
+    #     # How the host proxy reaches private AWS (not the agent protocol).
+    #     aws:
+    #       sso_profile: project-dev-developer
+    #       region: eu-west-2
