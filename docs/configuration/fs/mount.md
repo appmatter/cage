@@ -32,6 +32,9 @@ fs:
 - Directory binds only (no single-file binds as the primary model)
 - Host path must not match `fs.deny`, or load fails
 - Merged by target key across `cage.yaml` and `cage.<name>.yaml`
+- Nested guest path under another mount (e.g. `.git` or `scratch` under `"."`):
+  - `permission: ro` — own share + bind, then `remount,bind,ro` (host honored)
+  - `permission: rw` — writable hole under an `ro` parent (own share + bind; path must exist)
 
 ## Related config
 
@@ -48,4 +51,28 @@ fs:
     tests:
       host: ./tests
       permission: ro
+```
+
+Repo root rw + `.git` read-only (history without commit/push):
+
+```yaml
+fs:
+  mount:
+    ".": .
+    .git:
+      host: .git
+      permission: ro
+```
+
+Repo root read-only + writable nest:
+
+```yaml
+fs:
+  mount:
+    ".":
+      host: .
+      permission: ro
+    scratch:
+      host: ./scratch
+      permission: rw
 ```

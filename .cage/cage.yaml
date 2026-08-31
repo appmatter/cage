@@ -32,11 +32,12 @@ runtime:
 fs:
   layout:
     mode: flat
-  # Whole repo → /workspace (dogfood cage on itself).
-  # Re-add after .git is a real directory (not a broken symlink):
-  #   .git: { host: .git, permission: ro }
+  # Whole repo → /workspace; .git remounted ro (history/gh reads, no commit/push).
   mount:
     ".": .
+    .git:
+      host: .git
+      permission: ro
   copy: {}
   deny:
     # Host secrets — seed via fs.copy (e.g. .env.example → .env), never mount the real file.
