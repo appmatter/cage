@@ -24,7 +24,7 @@ Profiles **union** deny entries onto the base list.
 
 | Entry                         | Why                                                                   |
 | ----------------------------- | --------------------------------------------------------------------- |
-| `.git`                        | Drop this and add `fs.mount` for `.git` if the agent needs native git |
+| `.git`                        | Drop this and add `fs.mount` `.git` with `permission: ro` under a parent mount if the agent needs native git (read-only) |
 | `.env`, `.ssh`, `credentials` | Real secrets stay on the host; seed via `fs.copy` if needed           |
 | `.cage`, cage yaml          | Agent must not rewrite sandbox policy                                 |
 

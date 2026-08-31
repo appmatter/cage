@@ -32,18 +32,20 @@ runtime:
 fs:
   layout:
     mode: flat
-  # Paths that exist in this repo. Init may write other mounts for a real app.
+  # Whole repo → /workspace; .git remounted ro (history/gh reads, no commit/push).
   mount:
-    docs: ./docs
+    ".": .
+    .git:
+      host: .git
+      permission: ro
   copy: {}
   deny:
-    # Remove .git here and add an fs.mount for .git if the agent needs native git.
-    - .git
     # Host secrets — seed via fs.copy (e.g. .env.example → .env), never mount the real file.
     - .env
     - .ssh
     - credentials
     # Keep cage config off the agent FS so it cannot rewrite sandbox policy.
+    # (Root mount still exposes .cage contents unless the backend filters; do not add a .cage mount target.)
     - .cage
     - .cage/cage.yaml
     - .cage/cage.*.yaml

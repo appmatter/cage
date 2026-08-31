@@ -15,8 +15,8 @@ func TestDirArgs(t *testing.T) {
 		{Host: "/host/tests", Guest: "/workspace/tests", Permission: "ro"},
 	})
 	want := []string{
-		"--dir=src:/host/src",
-		"--dir=tests:/host/tests:ro",
+		"--dir=" + shareName("/workspace/src") + ":/host/src",
+		"--dir=" + shareName("/workspace/tests") + ":/host/tests:ro",
 	}
 	if len(got) != len(want) {
 		t.Fatalf("got %#v want %#v", got, want)
@@ -28,17 +28,87 @@ func TestDirArgs(t *testing.T) {
 	}
 }
 
-func TestShareName(t *testing.T) {
-	cases := map[string]string{
-		"/workspace/src": "src",
-		"/a/b/my-dir":    "my-dir",
-		"/":              "share",
-		"":               "share",
+func TestPartitionMountsNestedRO(t *testing.T) {
+	top, nestedRO, nestedRW, err := partitionMounts([]runtimeplugin.PathSpec{
+		{Host: "/repo", Guest: "/workspace", Permission: "rw"},
+		{Host: "/elsewhere/.git", Guest: "/workspace/.git", Permission: "ro"},
+		{Host: "/other", Guest: "/mnt/docs", Permission: "rw"},
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
-	for in, want := range cases {
-		if got := shareName(in); got != want {
-			t.Fatalf("shareName(%q)=%q want %q", in, got, want)
-		}
+	if len(top) != 2 || len(nestedRO) != 1 || len(nestedRW) != 0 {
+		t.Fatalf("top=%d nestedRO=%d nestedRW=%d", len(top), len(nestedRO), len(nestedRW))
+	}
+	if nestedRO[0].Guest != "/workspace/.git" || nestedRO[0].Host != "/elsewhere/.git" {
+		t.Fatalf("nestedRO=%#v", nestedRO)
+	}
+	dirs := dirArgs(append(append([]runtimeplugin.PathSpec{}, top...), nestedRO...))
+	if len(dirs) != 3 {
+		t.Fatalf("expected parent+sibling+nested ro dirs, got %v", dirs)
+	}
+	joined := strings.Join(dirs, " ")
+	if !strings.Contains(joined, shareName("/workspace/.git")+":/elsewhere/.git:ro") {
+		t.Fatalf("nested ro must keep its own host share: %v", dirs)
+	}
+}
+
+func TestPartitionMountsNestedRW(t *testing.T) {
+	top, nestedRO, nestedRW, err := partitionMounts([]runtimeplugin.PathSpec{
+		{Host: "/repo", Guest: "/workspace", Permission: "ro"},
+		{Host: "/repo/scratch", Guest: "/workspace/scratch", Permission: "rw"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(top) != 1 || len(nestedRO) != 0 || len(nestedRW) != 1 {
+		t.Fatalf("top=%d nestedRO=%d nestedRW=%d", len(top), len(nestedRO), len(nestedRW))
+	}
+	dirs := dirArgs(append(append([]runtimeplugin.PathSpec{}, top...), nestedRW...))
+	if len(dirs) != 2 {
+		t.Fatalf("expected parent+nested rw dirs, got %v", dirs)
+	}
+	joined := strings.Join(dirs, " ")
+	if !strings.Contains(joined, ":ro") {
+		t.Fatalf("parent should be ro: %v", dirs)
+	}
+	if strings.Count(joined, ":ro") != 1 {
+		t.Fatalf("nested rw must not get :ro: %v", dirs)
+	}
+	if !strings.Contains(joined, shareName("/workspace/scratch")+":") {
+		t.Fatalf("nested rw share missing: %v", dirs)
+	}
+}
+
+func TestGuestUnder(t *testing.T) {
+	if !guestUnder("/workspace/.git", "/workspace") {
+		t.Fatal("expected .git under workspace")
+	}
+	if guestUnder("/workspace", "/workspace") {
+		t.Fatal("equal is not under")
+	}
+	if guestUnder("/workspace2", "/workspace") {
+		t.Fatal("prefix sibling")
+	}
+}
+
+func TestShareName(t *testing.T) {
+	a := shareName("/workspace/a.b")
+	b := shareName("/workspace/a/b")
+	if a == b {
+		t.Fatalf("collision: %q == %q", a, b)
+	}
+	if !strings.HasPrefix(a, "workspace_a_b_") || !strings.HasPrefix(b, "workspace_a_b_") {
+		t.Fatalf("unexpected prefixes: %q %q", a, b)
+	}
+	if shareName("/workspace/src") != shareName("/workspace/src") {
+		t.Fatal("not stable")
+	}
+	if got := shareName("/"); !strings.HasPrefix(got, "share_") {
+		t.Fatalf("root=%q", got)
+	}
+	if got := shareName(""); !strings.HasPrefix(got, "share_") {
+		t.Fatalf("empty=%q", got)
 	}
 }
 
@@ -58,7 +128,6 @@ func TestCheckMountHosts(t *testing.T) {
 }
 
 func TestExtraRunArgsAppended(t *testing.T) {
-	// ensureRunning builds args via ExtraRunArgs; unit-check the append order with dirArgs.
 	extra := []string{"--net-softnet-block=0.0.0.0/0", "--net-softnet-allow=@host"}
 	dirs := dirArgs([]runtimeplugin.PathSpec{{Host: "/h", Guest: "/workspace/x"}})
 	got := append(append([]string{"run", "--no-graphics"}, extra...), dirs...)
@@ -66,7 +135,7 @@ func TestExtraRunArgsAppended(t *testing.T) {
 	want := []string{
 		"run", "--no-graphics",
 		"--net-softnet-block=0.0.0.0/0", "--net-softnet-allow=@host",
-		"--dir=x:/h", "vm",
+		"--dir=" + shareName("/workspace/x") + ":/h", "vm",
 	}
 	if len(got) != len(want) {
 		t.Fatalf("got %#v want %#v", got, want)
