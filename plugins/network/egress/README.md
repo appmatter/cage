@@ -6,7 +6,7 @@ When `network.proxy.disabled` is false/omitted (default), guest traffic is force
 
 Proxied upstreams must appear here too — protocol proxies do **not** skip the filter.
 
-Lone filter plugin: omit `priority` (defaults to `1`). See [project structure](../../../../project-structure.md).
+Lone filter plugin: omit `priority` (defaults to `1`). See [project structure](../../../docs/project-structure.md).
 
 ## Enforcement
 
@@ -17,7 +17,7 @@ Lone filter plugin: omit `priority` (defaults to `1`). See [project structure](.
 
 `network.proxy.disabled: true` turns off the SOCKS proxy and softnet lock (open guest networking; debug escape).
 
-`network.proxy.logging: true` writes CONNECT events as JSONL to `.cage/run/<id>/proxy.log` (and mirrors human lines on the start tty). Softnet drops outside SOCKS are not per-packet; with logging on you also get advisory `SOFTNET` lines (active + start probe) — see [softnet](../../../cli/quick-starts/macos/softnet.md). Follow with:
+`network.proxy.logging: true` writes CONNECT events as JSONL to `.cage/run/<id>/proxy.log` (and mirrors human lines on the start tty). Softnet drops outside SOCKS are not per-packet; with logging on you also get advisory `SOFTNET` lines (active + start probe) — see [softnet](../../runtime/tart/docs/softnet.md). Follow with:
 
 ```bash
 cage vm logs -f
@@ -35,7 +35,7 @@ sudo chown root "$(brew --prefix softnet)/bin/softnet"
 sudo chmod u+s "$(brew --prefix softnet)/bin/softnet"
 ```
 
-See [Softnet (macOS)](../../../cli/quick-starts/macos/softnet.md).
+See [Softnet (macOS)](../../runtime/tart/docs/softnet.md).
 
 Install the plugin: `cage plugin install -l ./plugins/network/egress`.
 
@@ -56,7 +56,7 @@ HTTP CONNECT soft-checks host:port first. With MITM (default), TLS is broken and
 | HTTPS via MITM | Filled |
 | HTTPS tunnel (`mitm: false`) | Empty; rules that require `method` / `path` **deny** |
 
-Prefer real `https://…` URLs through MITM. Named [`http-proxy`](../http-proxy.md) listen ports remain for clear-HTTP legacy.
+Prefer real `https://…` URLs through MITM. Named [`http-proxy`](../http-proxy/README.md) listen ports remain for clear-HTTP legacy.
 
 ## Hot reload
 
@@ -73,7 +73,7 @@ network:
   plugins:
     egress:
       deny_response:
-        http: false # see deny_response.md
+        http: false # see docs/deny-response.md
       deny:
         - host: evil.example
           port: 443
@@ -93,7 +93,7 @@ network:
 | --- | --- |
 | `priority` | Optional; required + unique when ≥2 plugins share filter |
 | `package` | Optional install source when short name `egress` collides |
-| `deny_response` | Optional HTTP 403 on plain-HTTP DENY — [deny_response](./deny_response.md) |
+| `deny_response` | Optional HTTP 403 on plain-HTTP DENY — [deny_response](./docs/deny-response.md) |
 | `deny` | Matched first → always deny |
 | `allow` | Destinations the sandbox may reach via the host proxy |
 | `host` | Hostname; glob `*` / `*.example.com` (also matches apex `example.com`); `"*"` = any |

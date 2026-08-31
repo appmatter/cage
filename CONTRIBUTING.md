@@ -38,5 +38,6 @@ npm run format:fix   # write
 
 ## Docs
 
-- Generic pages and folders: **kebab-case** (`quick-starts/`, `project-structure.md`).
-- Pages named for a config key or plugin id: **match the id** (`secrets_scanner.md`, `http-proxy.md`, `deny_response.md`).
+- Filenames and folders: **kebab-case** (`quick-starts/`, `project-structure.md`, `deny-response.md`).
+- Plugin docs: `README.md` at the plugin root; extra pages under `plugins/<context>/<name>/docs/` (kebab-case). Core `docs/` covers contracts, contexts, and indexes — link out to plugin READMEs.
+- External plugins ship the same layout.

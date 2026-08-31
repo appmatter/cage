@@ -19,7 +19,7 @@ JSON-RPC over HTTP uses `http-proxy`.
 
 ## Rollout
 
-- **v1:** `http-proxy` — see [http-proxy.md](./http-proxy.md)
+- **v1:** `http-proxy` — see [http-proxy](../../../../plugins/network/http-proxy/README.md)
 - **Later:** `postgres-proxy`, `tcp-proxy`, `aws-proxy`, `websocket-proxy`, `grpc-proxy`
 
 ## Related config

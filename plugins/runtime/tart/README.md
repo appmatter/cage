@@ -1,6 +1,6 @@
 # Tart (macOS runtime)
 
-[Tart](https://tart.run) is the darwin **backend** for Cage: create/start/stop Linux VMs via Apple Virtualization. Softnet (host-only networking) is separate — see [softnet.md](./softnet.md).
+[Tart](https://tart.run) is the darwin **backend** for Cage: create/start/stop Linux VMs via Apple Virtualization. Softnet (host-only networking) is separate — see [softnet.md](./docs/softnet.md).
 
 ## Install
 

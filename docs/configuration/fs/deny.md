@@ -37,7 +37,7 @@ Profiles **union** deny entries onto the base list.
 ## Related config
 
 - [`fs.mount`](./mount.md) / [`fs.copy`](./copy.md) — what deny constrains
-- [`mention`](./plugins/mention.md) — host @mention excludes (separate from deny)
+- [`mention`](../../../plugins/fs/mention/README.md) — host @mention excludes (separate from deny)
 
 ## Example
 

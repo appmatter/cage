@@ -11,7 +11,8 @@ If **two or more** terminate plugins are present, each must set `priority` expli
 | Doc | Topic |
 | --- | --- |
 | [type](./type.md) | Protocol plugins (`http-proxy`, `postgres-proxy`, …) |
-| [http-proxy](./http-proxy.md) | Host reverse-HTTP + header inject (v1) |
+| [http-proxy](../../../../plugins/network/http-proxy/README.md) | Host reverse-HTTP + header inject (v1) |
+| [egress](../../../../plugins/network/egress/README.md) | Outbound allowlist (filter) |
 
 ## Shape
 
@@ -38,5 +39,5 @@ network:
 
 - [`secrets`](../../secrets/backends.md) — refs used in templates
 - [`runtime.env`](../../runtime/env/overview.md) — placeholders in the sandbox only
-- [`network.plugins.egress`](./egress/overview.md) — outbound allowlist
-- [`hooks`](../../fs/plugins/secrets_scanner.md) — context hook actions
+- [`network.plugins.egress`](../../../../plugins/network/egress/README.md) — outbound allowlist
+- [`fs.plugins.secrets_scanner`](../../../../plugins/fs/secrets_scanner/README.md) — context hook actions

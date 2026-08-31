@@ -27,5 +27,5 @@ fs:
 
 ## Related config
 
-- [`fs`](../overview.md) — sandbox visibility
-- [`fs.deny`](../deny.md) — mount/copy policy (separate from mention excludes)
+- [`fs`](../../../docs/configuration/fs/overview.md) — sandbox visibility
+- [`fs.deny`](../../../docs/configuration/fs/deny.md) — mount/copy policy (separate from mention excludes)

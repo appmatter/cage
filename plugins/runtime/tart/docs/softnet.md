@@ -23,7 +23,7 @@ Re-run `chown`/`chmod` after `brew reinstall softnet` / upgrades (ownership and 
 
 ## What Cage passes
 
-With the host proxy on, core sets Tart `ExtraRunArgs` to softnet host-only (block all IPv4, allow `@host`). Egress allowlists run on the SOCKS proxy, not as softnet CIDR lists. See [runtime backend](../../plugins/runtime-backend.md) and [egress](../../configuration/network/plugins/egress/overview.md).
+With the host proxy on, core sets Tart `ExtraRunArgs` to softnet host-only (block all IPv4, allow `@host`). Egress allowlists run on the SOCKS proxy, not as softnet CIDR lists. See [runtime backend](../../../../docs/plugins/runtime-backend.md) and [egress](../../../network/egress/README.md).
 
 ## Logging
 

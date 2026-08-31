@@ -38,6 +38,6 @@ fs:
 
 ## Related config
 
-- [project structure](../../../project-structure.md) — contexts, plugins, hook points
-- [`fs`](../overview.md) — `plugins.secrets_scanner` seat
-- [`network.plugins.egress`](../../network/plugins/egress/overview.md) — outbound allowlist
+- [project structure](../../../docs/project-structure.md) — contexts, plugins, hook points
+- [`fs`](../../../docs/configuration/fs/overview.md) — `plugins.secrets_scanner` seat
+- [`network.plugins.egress`](../../network/egress/README.md) — outbound allowlist

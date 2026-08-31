@@ -55,7 +55,7 @@ need_cmd softnet
 need_cmd go
 need_cmd perl
 need_cmd python3
-softnet_privileged || skip "softnet needs root-owned setuid (see docs/cli/quick-starts/macos/softnet.md) or passwordless sudo"
+softnet_privileged || skip "softnet needs root-owned setuid (see plugins/runtime/tart/docs/softnet.md) or passwordless sudo"
 tart_has_image "$IMAGE" || skip "image $IMAGE not local (set CAGE_TART_IMAGE or tart pull/clone)"
 
 WORKDIR="$(mktemp -d "${TMPDIR:-/tmp}/cage-net-ipv6.XXXXXX")"

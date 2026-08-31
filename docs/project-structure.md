@@ -22,7 +22,7 @@ Go module at the repo root. Host-side Cage CLI and supervisor.
 │   ├── secrets/
 │   ├── fs/                           # e.g. mention, secrets_scanner
 │   └── network/                      # traffic stages (filter, terminate, …)
-├── plugins/
+├── plugins/                          # each plugin ships its own README
 │   ├── runtime/tart/
 │   ├── runtime/pi-agent/             # later — harness stage
 │   ├── secrets/onepassword/
@@ -32,7 +32,7 @@ Go module at the repo root. Host-side Cage CLI and supervisor.
 │       ├── egress/
 │       ├── http-proxy/
 │       └── postgres-proxy/
-├── docs/
+├── docs/                             # core only; link to plugin READMEs
 │   ├── project-structure.md
 │   └── configuration/…
 └── .cage/

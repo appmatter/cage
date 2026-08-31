@@ -1,8 +1,8 @@
 # HTTP proxy (`network.plugins.http-proxy`)
 
-**Terminate** stage of [`network.plugins`](./overview.md): header inject for named API hosts.
+**Terminate** stage of [`network.plugins`](../../../docs/configuration/network/plugins/overview.md): header inject for named API hosts.
 
-With **HTTPS MITM** on (default when host proxy is on), the agent calls the real URL (`https://api.openai.com/...`). Cage matches `url` host, injects `headers`, runs [egress](./egress/overview.md) `Check` with Method/Path, then dials upstream. No `CAGE_HTTP_*` rewrite required.
+With **HTTPS MITM** on (default when host proxy is on), the agent calls the real URL (`https://api.openai.com/...`). Cage matches `url` host, injects `headers`, runs [egress](../egress/README.md) `Check` with Method/Path, then dials upstream. No `CAGE_HTTP_*` rewrite required.
 
 Named `listen` ports still work as clear-HTTP reverse proxies (legacy / tools that cannot trust the guest CA).
 
