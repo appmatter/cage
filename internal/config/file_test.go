@@ -326,12 +326,13 @@ fs:
         - OPENAI_API_KEY
         - path: .env.example
 secrets:
-  onepassword:
+  plugins:
     personal-op:
+      plugin: onepassword
       vars:
         OPENAI_API_KEY: op://x
-  aws_sm:
     dev-sm:
+      plugin: aws_sm
       region: eu-west-2
       vars:
         DB_PASSWORD: arn:aws:sm:x
@@ -367,12 +368,12 @@ network:
 	if sc.Allow[0].Name != "OPENAI_API_KEY" || sc.Allow[1].Path != ".env.example" {
 		t.Fatalf("allow=%#v", sc.Allow)
 	}
-	op := f.Secrets["onepassword"]["personal-op"]
-	if op.Vars["OPENAI_API_KEY"] == "" {
-		t.Fatalf("secrets=%#v", f.Secrets)
+	op := f.Secrets.Plugins["personal-op"]
+	if op.Plugin != "onepassword" || op.Vars["OPENAI_API_KEY"] == "" {
+		t.Fatalf("secrets=%#v", f.Secrets.Plugins)
 	}
-	if f.Secrets["aws_sm"]["dev-sm"].Region != "eu-west-2" {
-		t.Fatalf("aws_sm=%#v", f.Secrets["aws_sm"])
+	if f.Secrets.Plugins["dev-sm"].Region != "eu-west-2" {
+		t.Fatalf("aws_sm=%#v", f.Secrets.Plugins["dev-sm"])
 	}
 	if f.Network.Plugins.HTTPProxy == nil || f.Network.Plugins.HTTPProxy.Endpoints["openai"].URL == "" {
 		t.Fatalf("http-proxy=%#v", f.Network.Plugins.HTTPProxy)

@@ -24,7 +24,7 @@ JSON-RPC over HTTP uses `http-proxy`.
 
 ## Related config
 
-- **`secrets`** — prefer templates in proxy fields (`{{ secrets.<alias>.<var> }}`)
+- **`secrets`** — prefer templates in proxy fields (`{{ secrets.<seat>.<var> }}`)
 - **`runtime.env`** — placeholders preferred; `{{ secrets.* }}` allowed but puts values in the guest
 - **Reachability** — optional blocks on the proxy (e.g. `aws.sso_profile`) for private upstreams
 

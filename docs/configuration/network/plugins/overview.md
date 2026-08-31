@@ -25,7 +25,7 @@ network:
       <name>:
         url: https://api.example.com/v1
         headers:
-          Authorization: "Bearer {{ secrets.<alias>.<var> }}"
+          Authorization: "Bearer {{ secrets.<seat>.<var> }}"
     postgres-proxy:
       priority: 2
       <name>:

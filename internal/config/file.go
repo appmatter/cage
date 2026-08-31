@@ -16,8 +16,13 @@ type File struct {
 	Extends string                            `yaml:"extends"`
 	Runtime Runtime                           `yaml:"runtime"`
 	FS      FS                                `yaml:"fs"`
-	Secrets map[string]map[string]SecretStore `yaml:"secrets"` // plugin → alias → store
-	Network Network                           `yaml:"network"`
+	Secrets Secrets `yaml:"secrets"`
+	Network Network `yaml:"network"`
+}
+
+// Secrets is the secrets context: installable store seats under plugins.
+type Secrets struct {
+	Plugins map[string]SecretStore `yaml:"plugins"` // seat → store
 }
 
 // Runtime is the runtime context: plugins (backend seats), workdir, guest env, hooks.
@@ -137,12 +142,23 @@ type Mention struct {
 	Exclude []string `yaml:"exclude"`
 }
 
-// SecretStore is one secrets.<plugin>.<alias> entry (plugin is the parent map key).
+// SecretStore is one secrets.plugins.<seat> entry.
 // No priority — secrets resolve by dependency DAG (uses + template refs).
 type SecretStore struct {
-	Uses   []string          `yaml:"uses,omitempty"`
-	Region string            `yaml:"region,omitempty"`
-	Vars   map[string]string `yaml:"vars"`
+	Plugin  string            `yaml:"plugin,omitempty"`  // short install name; omit = seat name
+	Package string            `yaml:"package,omitempty"` // optional source override
+	Uses    []string          `yaml:"uses,omitempty"`
+	Account string            `yaml:"account,omitempty"` // onepassword: op --account
+	Region  string            `yaml:"region,omitempty"`  // aws_sm
+	Vars    map[string]string `yaml:"vars"`
+}
+
+// PluginID returns the installable short name for this seat.
+func (s SecretStore) PluginID(seat string) string {
+	if s.Plugin != "" {
+		return s.Plugin
+	}
+	return seat
 }
 
 // Network is the network context: optional proxy settings, installable plugins, hooks.
@@ -586,7 +602,7 @@ func mergeFiles(base, over File) File {
 	}
 	out.FS.Hooks = mergeHookEvents(base.FS.Hooks, over.FS.Hooks)
 	out.Runtime.Hooks = mergeHookEvents(base.Runtime.Hooks, over.Runtime.Hooks)
-	out.Secrets = mergeSecretPlugins(base.Secrets, over.Secrets)
+	out.Secrets.Plugins = mergeSecretPlugins(base.Secrets.Plugins, over.Secrets.Plugins)
 	if over.Network.Proxy.Disabled != nil {
 		v := *over.Network.Proxy.Disabled
 		out.Network.Proxy.Disabled = &v
@@ -632,38 +648,53 @@ func mergeFiles(base, over File) File {
 	return out
 }
 
-func mergeSecretPlugins(base, over map[string]map[string]SecretStore) map[string]map[string]SecretStore {
+func mergeSecretPlugins(base, over map[string]SecretStore) map[string]SecretStore {
 	if len(base) == 0 && len(over) == 0 {
 		return nil
 	}
-	out := map[string]map[string]SecretStore{}
-	for plugin, aliases := range base {
-		out[plugin] = map[string]SecretStore{}
-		for alias, store := range aliases {
-			out[plugin][alias] = store
-		}
+	out := map[string]SecretStore{}
+	for seat, store := range base {
+		out[seat] = cloneSecretStore(store)
 	}
-	for plugin, aliases := range over {
-		if out[plugin] == nil {
-			out[plugin] = map[string]SecretStore{}
+	for seat, store := range over {
+		cur := out[seat]
+		if store.Plugin != "" {
+			cur.Plugin = store.Plugin
 		}
-		for alias, store := range aliases {
-			cur := out[plugin][alias]
-			if store.Uses != nil {
-				cur.Uses = append([]string{}, store.Uses...)
+		if store.Package != "" {
+			cur.Package = store.Package
+		}
+		if store.Uses != nil {
+			cur.Uses = append([]string{}, store.Uses...)
+		}
+		if store.Account != "" {
+			cur.Account = store.Account
+		}
+		if store.Region != "" {
+			cur.Region = store.Region
+		}
+		if store.Vars != nil {
+			if cur.Vars == nil {
+				cur.Vars = map[string]string{}
 			}
-			if store.Region != "" {
-				cur.Region = store.Region
+			for k, v := range store.Vars {
+				cur.Vars[k] = v
 			}
-			if store.Vars != nil {
-				if cur.Vars == nil {
-					cur.Vars = map[string]string{}
-				}
-				for k, v := range store.Vars {
-					cur.Vars[k] = v
-				}
-			}
-			out[plugin][alias] = cur
+		}
+		out[seat] = cur
+	}
+	return out
+}
+
+func cloneSecretStore(s SecretStore) SecretStore {
+	out := s
+	if s.Uses != nil {
+		out.Uses = append([]string{}, s.Uses...)
+	}
+	if s.Vars != nil {
+		out.Vars = map[string]string{}
+		for k, v := range s.Vars {
+			out.Vars[k] = v
 		}
 	}
 	return out
