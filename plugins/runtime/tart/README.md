@@ -42,5 +42,5 @@ Binary lands as `.cage/.cache/plugins/runtime/tart/cage-runtime-tart.cageplugin`
 - Interactive `cage vm exec` runs `tart exec -it` on the host terminal (not via go-plugin pipes).
 - Guest agent / control socket issues are Tart-side; see [upstream Tart](https://github.com/cirruslabs/tart).
 - Nested mounts (guest path under another mount):
-  - `permission: ro` — bind-remount ro in the guest (`remount,bind,ro`; plain `remount,ro` would EROFS the parent share)
-  - `permission: rw` (or omit) — separate virtiofs `--dir` + `mount --bind` over the path (no `rm`; works under an `ro` parent). Nested path must already exist when the parent is ro.
+  - `permission: ro` — own virtiofs `--dir` + bind, then `remount,bind,ro` (host honored; plain `remount,ro` would EROFS the parent share)
+  - `permission: rw` (or omit) — own virtiofs `--dir` + `mount --bind` over the path (no `rm`; works under an `ro` parent). Nested path must already exist when the parent is ro.

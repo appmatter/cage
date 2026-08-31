@@ -15,8 +15,8 @@ func TestDirArgs(t *testing.T) {
 		{Host: "/host/tests", Guest: "/workspace/tests", Permission: "ro"},
 	})
 	want := []string{
-		"--dir=workspace_src:/host/src",
-		"--dir=workspace_tests:/host/tests:ro",
+		"--dir=" + shareName("/workspace/src") + ":/host/src",
+		"--dir=" + shareName("/workspace/tests") + ":/host/tests:ro",
 	}
 	if len(got) != len(want) {
 		t.Fatalf("got %#v want %#v", got, want)
@@ -31,7 +31,7 @@ func TestDirArgs(t *testing.T) {
 func TestPartitionMountsNestedRO(t *testing.T) {
 	top, nestedRO, nestedRW, err := partitionMounts([]runtimeplugin.PathSpec{
 		{Host: "/repo", Guest: "/workspace", Permission: "rw"},
-		{Host: "/repo/.git", Guest: "/workspace/.git", Permission: "ro"},
+		{Host: "/elsewhere/.git", Guest: "/workspace/.git", Permission: "ro"},
 		{Host: "/other", Guest: "/mnt/docs", Permission: "rw"},
 	})
 	if err != nil {
@@ -40,14 +40,16 @@ func TestPartitionMountsNestedRO(t *testing.T) {
 	if len(top) != 2 || len(nestedRO) != 1 || len(nestedRW) != 0 {
 		t.Fatalf("top=%d nestedRO=%d nestedRW=%d", len(top), len(nestedRO), len(nestedRW))
 	}
-	if nestedRO[0].Guest != "/workspace/.git" {
+	if nestedRO[0].Guest != "/workspace/.git" || nestedRO[0].Host != "/elsewhere/.git" {
 		t.Fatalf("nestedRO=%#v", nestedRO)
 	}
-	dirs := dirArgs(top)
-	for _, d := range dirs {
-		if strings.Contains(d, ".git") || strings.Contains(d, "_git") {
-			t.Fatalf("nested ro .git must not appear in top dirArgs: %v", dirs)
-		}
+	dirs := dirArgs(append(append([]runtimeplugin.PathSpec{}, top...), nestedRO...))
+	if len(dirs) != 3 {
+		t.Fatalf("expected parent+sibling+nested ro dirs, got %v", dirs)
+	}
+	joined := strings.Join(dirs, " ")
+	if !strings.Contains(joined, shareName("/workspace/.git")+":/elsewhere/.git:ro") {
+		t.Fatalf("nested ro must keep its own host share: %v", dirs)
 	}
 }
 
@@ -73,7 +75,7 @@ func TestPartitionMountsNestedRW(t *testing.T) {
 	if strings.Count(joined, ":ro") != 1 {
 		t.Fatalf("nested rw must not get :ro: %v", dirs)
 	}
-	if !strings.Contains(joined, "workspace_scratch:") {
+	if !strings.Contains(joined, shareName("/workspace/scratch")+":") {
 		t.Fatalf("nested rw share missing: %v", dirs)
 	}
 }
@@ -91,17 +93,22 @@ func TestGuestUnder(t *testing.T) {
 }
 
 func TestShareName(t *testing.T) {
-	cases := map[string]string{
-		"/workspace/src":  "workspace_src",
-		"/a/b/my-dir":     "a_b_my-dir",
-		"/workspace/.git": "workspace__git",
-		"/":               "share",
-		"":                "share",
+	a := shareName("/workspace/a.b")
+	b := shareName("/workspace/a/b")
+	if a == b {
+		t.Fatalf("collision: %q == %q", a, b)
 	}
-	for in, want := range cases {
-		if got := shareName(in); got != want {
-			t.Fatalf("shareName(%q)=%q want %q", in, got, want)
-		}
+	if !strings.HasPrefix(a, "workspace_a_b_") || !strings.HasPrefix(b, "workspace_a_b_") {
+		t.Fatalf("unexpected prefixes: %q %q", a, b)
+	}
+	if shareName("/workspace/src") != shareName("/workspace/src") {
+		t.Fatal("not stable")
+	}
+	if got := shareName("/"); !strings.HasPrefix(got, "share_") {
+		t.Fatalf("root=%q", got)
+	}
+	if got := shareName(""); !strings.HasPrefix(got, "share_") {
+		t.Fatalf("empty=%q", got)
 	}
 }
 
@@ -128,7 +135,7 @@ func TestExtraRunArgsAppended(t *testing.T) {
 	want := []string{
 		"run", "--no-graphics",
 		"--net-softnet-block=0.0.0.0/0", "--net-softnet-allow=@host",
-		"--dir=workspace_x:/h", "vm",
+		"--dir=" + shareName("/workspace/x") + ":/h", "vm",
 	}
 	if len(got) != len(want) {
 		t.Fatalf("got %#v want %#v", got, want)

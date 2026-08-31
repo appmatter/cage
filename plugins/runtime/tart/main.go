@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -135,11 +136,12 @@ func (t *Tart) ensureRunning(spec runtimeplugin.Spec, graphics bool) error {
 			args = append(args, "--no-graphics")
 		}
 		args = append(args, spec.ExtraRunArgs...)
-		top, _, nestedRW, err := partitionMounts(spec.Mounts)
+		top, nestedRO, nestedRW, err := partitionMounts(spec.Mounts)
 		if err != nil {
 			return err
 		}
 		dirs := append([]runtimeplugin.PathSpec{}, top...)
+		dirs = append(dirs, nestedRO...)
 		dirs = append(dirs, nestedRW...)
 		args = append(args, dirArgs(dirs)...)
 		args = append(args, spec.ID)
@@ -207,14 +209,14 @@ func applyGuestFS(spec runtimeplugin.Spec) error {
 			}
 		}
 		if len(nestedRO) > 0 {
-			progress("remounting %d nested paths read-only", len(nestedRO))
-			if err := remountNestedRO(spec.ID, nestedRO); err != nil {
+			progress("bind-mounting %d nested ro shares", len(nestedRO))
+			if err := bindNested(spec.ID, shareRoot, nestedRO, true); err != nil {
 				return err
 			}
 		}
 		if len(nestedRW) > 0 {
 			progress("bind-mounting %d nested rw shares", len(nestedRW))
-			if err := bindNestedRW(spec.ID, shareRoot, nestedRW); err != nil {
+			if err := bindNested(spec.ID, shareRoot, nestedRW, false); err != nil {
 				return err
 			}
 		}
@@ -397,7 +399,7 @@ func (t *Tart) vmExists(id string) (bool, error) {
 	return st.State != "unknown", nil
 }
 
-// dirArgs builds tart run --dir flags (top-level shares and nested-rw overlays).
+// dirArgs builds tart run --dir flags (top-level and nested overlay shares).
 func dirArgs(mounts []runtimeplugin.PathSpec) []string {
 	var out []string
 	for _, m := range mounts {
@@ -414,33 +416,33 @@ func dirArgs(mounts []runtimeplugin.PathSpec) []string {
 	return out
 }
 
-// shareName is a stable virtiofs share id from the guest path (full path, unique).
+// shareName is a stable virtiofs share id from the guest path.
+// Readable prefix + short path hash so a.b and a/b cannot collide.
 func shareName(guest string) string {
-	c := strings.Trim(guestClean(guest), "/")
-	if c == "" || c == "." {
-		return "share"
-	}
-	var b strings.Builder
-	for _, r := range c {
-		switch {
-		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-', r == '_':
-			b.WriteRune(r)
-		case r == '/':
-			b.WriteByte('_')
-		default:
-			b.WriteByte('_')
+	cleaned := guestClean(guest)
+	c := strings.Trim(cleaned, "/")
+	prefix := "share"
+	if c != "" && c != "." {
+		var b strings.Builder
+		for _, r := range c {
+			switch {
+			case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-', r == '_':
+				b.WriteRune(r)
+			default:
+				b.WriteByte('_')
+			}
+		}
+		if s := b.String(); s != "" {
+			prefix = s
 		}
 	}
-	s := b.String()
-	if s == "" {
-		return "share"
-	}
-	return s
+	sum := sha256.Sum256([]byte(cleaned))
+	return fmt.Sprintf("%s_%x", prefix, sum[:4])
 }
 
 // partitionMounts splits mounts into top-level shares vs nested paths.
-// Nested ro → bind-remount ro on the parent tree (no extra --dir).
-// Nested rw → own --dir + bind over the guest path (no rm; punches rw through an ro parent).
+// Nested ro/rw → own --dir + bind over the guest path (host honored; no rm).
+// Nested rw punches through an ro parent; nested ro is remount,bind,ro after bind.
 func partitionMounts(mounts []runtimeplugin.PathSpec) (top, nestedRO, nestedRW []runtimeplugin.PathSpec, err error) {
 	for i, m := range mounts {
 		if m.Guest == "" {
@@ -572,7 +574,7 @@ func mountVirtiofs(id, shareRoot string) error {
 }
 
 // linkMounts symlinks top-level virtiofs shares into guest paths.
-// Must not be used for nested paths (see remountNestedRO / bindNestedRW).
+// Must not be used for nested paths (see bindNested).
 func linkMounts(id, shareRoot string, mounts []runtimeplugin.PathSpec) error {
 	for _, m := range mounts {
 		if m.Guest == "" {
@@ -591,31 +593,10 @@ func linkMounts(id, shareRoot string, mounts []runtimeplugin.PathSpec) error {
 	return nil
 }
 
-// remountNestedRO bind-remounts nested guest paths read-only without rm/symlink.
-// Must use remount,bind,ro — plain remount,ro remounts the underlying virtiofs share
-// and makes the whole parent tree EROFS.
-func remountNestedRO(id string, mounts []runtimeplugin.PathSpec) error {
-	for _, m := range mounts {
-		guest := guestClean(m.Guest)
-		script := fmt.Sprintf(
-			`set -e
-test -e %q
-if ! mountpoint -q %q; then
-  sudo mount --bind %q %q
-fi
-sudo mount -o remount,bind,ro %q`,
-			guest, guest, guest, guest, guest,
-		)
-		if err := tartExec(id, nil, false, false, "sh", "-c", script); err != nil {
-			return fmt.Errorf("remount ro %s: %w", guest, err)
-		}
-	}
-	return nil
-}
-
-// bindNestedRW overlays a nested guest path with its own rw virtiofs share (no rm).
-// Path must already exist under the parent mount when the parent is ro.
-func bindNestedRW(id, shareRoot string, mounts []runtimeplugin.PathSpec) error {
+// bindNested overlays a nested guest path with its own virtiofs share (no rm).
+// Host is honored via a separate --dir. remountRO applies remount,bind,ro after bind
+// (plain remount,ro would EROFS the parent share).
+func bindNested(id, shareRoot string, mounts []runtimeplugin.PathSpec, remountRO bool) error {
 	for _, m := range mounts {
 		guest := guestClean(m.Guest)
 		src := filepath.ToSlash(filepath.Join(shareRoot, shareName(m.Guest)))
@@ -630,8 +611,11 @@ if ! mountpoint -q %q; then
 fi`,
 			src, guest, guest, guest, src, guest,
 		)
+		if remountRO {
+			script += fmt.Sprintf("\nsudo mount -o remount,bind,ro %q", guest)
+		}
 		if err := tartExec(id, nil, false, false, "sh", "-c", script); err != nil {
-			return fmt.Errorf("bind nested rw %s <- %s: %w", guest, src, err)
+			return fmt.Errorf("bind nested %s <- %s: %w", guest, src, err)
 		}
 	}
 	return nil
