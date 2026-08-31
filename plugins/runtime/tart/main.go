@@ -1,0 +1,658 @@
+package main
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/hashicorp/go-plugin"
+
+	"github.com/appmatter/cage/internal/termlog"
+	runtimeplugin "github.com/appmatter/cage/pkg/plugin/v1/runtime"
+)
+
+const (
+	virtiofsTag      = "com.apple.virtio-fs.automount"
+	readyTimeout     = 45 * time.Second
+	readyPollEvery   = 2 * time.Second
+	defaultShareRoot = "/tmp/cage"
+)
+
+func main() {
+	plugin.Serve(&plugin.ServeConfig{
+		HandshakeConfig: runtimeplugin.Handshake,
+		Plugins:         runtimeplugin.PluginMap(&Tart{}),
+	})
+}
+
+// Tart implements runtime.Backend via the tart CLI.
+type Tart struct{}
+
+func (t *Tart) Name() string { return "tart" }
+
+func progress(format string, args ...any) {
+	termlog.Plugin("tart", format, args...)
+}
+
+func (t *Tart) Create(spec runtimeplugin.Spec) error {
+	if spec.ID == "" {
+		return fmt.Errorf("id is required")
+	}
+	if spec.Image == "" {
+		return fmt.Errorf("image is required")
+	}
+	if err := ensureTart(); err != nil {
+		return err
+	}
+	exists, err := t.vmExists(spec.ID)
+	if err != nil {
+		return err
+	}
+	if exists {
+		if from, err := readImageStamp(spec.ID); err == nil && from != "" && from != spec.Image {
+			return fmt.Errorf("vm %q exists from image %q but config wants %q — cage vm delete --id %s first",
+				spec.ID, from, spec.Image, spec.ID)
+		}
+		progress("vm %q already exists", spec.ID)
+		return nil
+	}
+	progress("ensuring image %s", spec.Image)
+	if err := ensureImage(spec.Image); err != nil {
+		return err
+	}
+	progress("cloning %s → %s", spec.Image, spec.ID)
+	if err := runTart("clone", spec.Image, spec.ID); err != nil {
+		return err
+	}
+	return writeImageStamp(spec.ID, spec.Image)
+}
+
+func (t *Tart) Start(spec runtimeplugin.Spec) error {
+	if spec.ID == "" {
+		return fmt.Errorf("id is required")
+	}
+	if err := ensureTart(); err != nil {
+		return err
+	}
+	if err := checkMountHosts(spec.Mounts); err != nil {
+		return err
+	}
+
+	wantUI := spec.Graphics
+	// Always bring the VM up headless for mounts/lifecycle so the Tart window
+	// does not open before the guest is actually ready.
+	if err := t.ensureRunning(spec, false); err != nil {
+		return err
+	}
+	if err := applyGuestFS(spec); err != nil {
+		return err
+	}
+	if err := runOnCreate(spec); err != nil {
+		return err
+	}
+	if err := runHostScripts(spec.ID, spec.Workdir, "on-start", spec.OnStart); err != nil {
+		return err
+	}
+	if !wantUI {
+		return nil
+	}
+	progress("setup done; reopening with graphics UI")
+	if err := t.Stop(spec.ID); err != nil {
+		return err
+	}
+	if err := t.ensureRunning(spec, true); err != nil {
+		return err
+	}
+	return applyGuestFS(spec)
+}
+
+// ensureRunning starts tart run if needed. graphics=false → --no-graphics.
+func (t *Tart) ensureRunning(spec runtimeplugin.Spec, graphics bool) error {
+	st, err := t.Status(spec.ID)
+	if err != nil {
+		return err
+	}
+	var runDied <-chan error
+	if st.State != "running" {
+		progress("running %s (%d mounts, graphics=%v)", spec.ID, len(spec.Mounts), graphics)
+		args := []string{"run"}
+		if !graphics {
+			args = append(args, "--no-graphics")
+		}
+		args = append(args, spec.ExtraRunArgs...)
+		args = append(args, dirArgs(spec.Mounts)...)
+		args = append(args, spec.ID)
+		cmd := exec.Command("tart", args...)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Start(); err != nil {
+			return fmt.Errorf("tart run: %w", err)
+		}
+		died := make(chan error, 1)
+		go func() { died <- cmd.Wait() }()
+		runDied = died
+	} else {
+		progress("vm %q already running", spec.ID)
+	}
+	progress("waiting for guest agent (up to %s)", readyTimeout)
+	return waitReady(spec.ID, runDied)
+}
+
+func applyGuestFS(spec runtimeplugin.Spec) error {
+	shareRoot := defaultShareRoot
+	if len(spec.Mounts) > 0 {
+		progress("mounting virtiofs → %s", shareRoot)
+		if err := mountVirtiofs(spec.ID, shareRoot); err != nil {
+			return err
+		}
+		progress("linking %d mounts under guest paths", len(spec.Mounts))
+		if err := linkMounts(spec.ID, shareRoot, spec.Mounts); err != nil {
+			return err
+		}
+	}
+	if len(spec.Copies) > 0 {
+		progress("applying %d copies", len(spec.Copies))
+	}
+	return applyCopies(spec.ID, spec.Copies)
+}
+
+func (t *Tart) Stop(id string) error {
+	if id == "" {
+		return fmt.Errorf("id is required")
+	}
+	if err := ensureTart(); err != nil {
+		return err
+	}
+	return runTart("stop", id)
+}
+
+func (t *Tart) Status(id string) (runtimeplugin.Status, error) {
+	if id == "" {
+		return runtimeplugin.Status{}, fmt.Errorf("id is required")
+	}
+	if err := ensureTart(); err != nil {
+		return runtimeplugin.Status{}, err
+	}
+	out, err := exec.Command("tart", "list", "--format", "json").Output()
+	if err != nil {
+		return runtimeplugin.Status{}, fmt.Errorf("tart list: %w", err)
+	}
+	var rows []struct {
+		Name  string `json:"Name"`
+		State string `json:"State"`
+	}
+	if err := json.Unmarshal(out, &rows); err != nil {
+		return runtimeplugin.Status{}, fmt.Errorf("tart list json: %w", err)
+	}
+	for _, row := range rows {
+		if row.Name == id {
+			return runtimeplugin.Status{ID: id, State: normalizeState(row.State)}, nil
+		}
+	}
+	return runtimeplugin.Status{ID: id, State: "unknown"}, fmt.Errorf("vm %q not found; run: cage vm create --id %s", id, id)
+}
+
+func (t *Tart) Delete(spec runtimeplugin.Spec) error {
+	id := spec.ID
+	if id == "" {
+		return fmt.Errorf("id is required")
+	}
+	if err := ensureTart(); err != nil {
+		return err
+	}
+	st, err := t.Status(id)
+	if err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			return nil
+		}
+		return err
+	}
+	if len(spec.OnDestroy) > 0 {
+		if st.State != "running" {
+			return fmt.Errorf("on-destroy requires a running VM; cage vm start --id %s first", id)
+		}
+		if err := runHostScripts(id, spec.Workdir, "on-destroy", spec.OnDestroy); err != nil {
+			return err
+		}
+	}
+	if st.State == "running" {
+		if err := t.Stop(id); err != nil {
+			return err
+		}
+	}
+	return runTart("delete", id)
+}
+
+func (t *Tart) Exec(id string, opts runtimeplugin.ExecOpts) error {
+	if id == "" {
+		return fmt.Errorf("id is required")
+	}
+	if len(opts.Argv) == 0 {
+		return fmt.Errorf("exec argv is required")
+	}
+	if err := ensureTart(); err != nil {
+		return err
+	}
+	if opts.TTY {
+		return tartExec(id, os.Stdin, true, true, opts.Argv...)
+	}
+	var stdin io.Reader
+	if len(opts.Stdin) > 0 {
+		stdin = bytes.NewReader(opts.Stdin)
+	}
+	return tartExec(id, stdin, true, false, opts.Argv...)
+}
+
+// Bake clones BaseImage → DerivedID, runs Scripts once, stops. No-op if DerivedID exists
+// and Force is false. Uses open guest networking (no ExtraRunArgs) so package installs work.
+func (t *Tart) Bake(spec runtimeplugin.BakeSpec) error {
+	if spec.DerivedID == "" {
+		return fmt.Errorf("bake: derived id is required")
+	}
+	if spec.BaseImage == "" {
+		return fmt.Errorf("bake: base image is required")
+	}
+	if err := ensureTart(); err != nil {
+		return err
+	}
+	exists, err := t.vmExists(spec.DerivedID)
+	if err != nil {
+		return err
+	}
+	if exists && spec.Force {
+		progress("bake force: removing incomplete %q", spec.DerivedID)
+		_ = t.Stop(spec.DerivedID)
+		if err := runTart("delete", spec.DerivedID); err != nil {
+			return fmt.Errorf("bake force delete: %w", err)
+		}
+		exists = false
+	}
+	if exists {
+		progress("bake cache hit %q", spec.DerivedID)
+		return nil
+	}
+	progress("bake miss %q from %s (%d scripts) — this can take a while",
+		spec.DerivedID, spec.BaseImage, len(spec.Scripts))
+	if err := ensureImage(spec.BaseImage); err != nil {
+		return err
+	}
+	progress("bake clone %s → %s", spec.BaseImage, spec.DerivedID)
+	if err := runTart("clone", spec.BaseImage, spec.DerivedID); err != nil {
+		return err
+	}
+	bakeSpec := runtimeplugin.Spec{
+		ID:       spec.DerivedID,
+		Image:    spec.BaseImage,
+		Workdir:  spec.Workdir,
+		Graphics: false,
+	}
+	cleanup := func() {
+		_ = t.Stop(spec.DerivedID)
+		_ = runTart("delete", spec.DerivedID)
+	}
+	if err := t.ensureRunning(bakeSpec, false); err != nil {
+		cleanup()
+		return fmt.Errorf("bake start: %w", err)
+	}
+	if err := runHostScripts(spec.DerivedID, spec.Workdir, "bake", spec.Scripts); err != nil {
+		cleanup()
+		return err
+	}
+	// Persist guest writes before stop (otherwise tart stop can drop unflushed npm installs).
+	if err := tartExec(spec.DerivedID, nil, false, false, "sudo", "sh", "-c",
+		`sync; mkdir -p /var/lib/cage && touch /var/lib/cage/bake.done && sync`); err != nil {
+		cleanup()
+		return fmt.Errorf("bake sync: %w", err)
+	}
+	if err := tartExec(spec.DerivedID, nil, false, false, "test", "-f", "/var/lib/cage/bake.done"); err != nil {
+		cleanup()
+		return fmt.Errorf("bake: completion marker missing after sync")
+	}
+	progress("bake stopping %s", spec.DerivedID)
+	if err := t.Stop(spec.DerivedID); err != nil {
+		cleanup()
+		return fmt.Errorf("bake stop: %w", err)
+	}
+	progress("bake ready %s", spec.DerivedID)
+	return nil
+}
+
+func (t *Tart) vmExists(id string) (bool, error) {
+	st, err := t.Status(id)
+	if err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			return false, nil
+		}
+		return false, err
+	}
+	return st.State != "unknown", nil
+}
+
+// dirArgs builds tart run --dir flags. Exported for tests via same package.
+func dirArgs(mounts []runtimeplugin.PathSpec) []string {
+	var out []string
+	for _, m := range mounts {
+		if m.Host == "" {
+			continue
+		}
+		name := shareName(m.Guest)
+		arg := name + ":" + m.Host
+		if m.Permission == "ro" {
+			arg += ":ro"
+		}
+		out = append(out, "--dir="+arg)
+	}
+	return out
+}
+
+func shareName(guest string) string {
+	base := filepath.Base(strings.TrimSuffix(guest, "/"))
+	if base == "" || base == "." || base == "/" {
+		base = "share"
+	}
+	var b strings.Builder
+	for _, r := range base {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
+			b.WriteRune(r)
+		} else {
+			b.WriteByte('_')
+		}
+	}
+	s := b.String()
+	if s == "" {
+		return "share"
+	}
+	return s
+}
+
+func ensureImage(image string) error {
+	// Local clone names exist as VMs; remote OCI refs need pull.
+	if !strings.Contains(image, "/") && !strings.Contains(image, ":") {
+		return nil
+	}
+	out, err := exec.Command("tart", "list", "--format", "json").Output()
+	if err == nil {
+		var rows []struct {
+			Name string `json:"Name"`
+		}
+		if json.Unmarshal(out, &rows) == nil {
+			for _, row := range rows {
+				if row.Name == image {
+					return nil
+				}
+			}
+		}
+	}
+	return runTart("pull", image)
+}
+
+func checkMountHosts(mounts []runtimeplugin.PathSpec) error {
+	var missing []string
+	for _, m := range mounts {
+		if m.Host == "" {
+			continue
+		}
+		if _, err := os.Stat(m.Host); err != nil {
+			missing = append(missing, m.Host)
+		}
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	return fmt.Errorf("mount host path(s) missing:\n  %s", strings.Join(missing, "\n  "))
+}
+
+func waitReady(id string, runDied <-chan error) error {
+	deadline := time.Now().Add(readyTimeout)
+	var last error
+	started := time.Now()
+	for time.Now().Before(deadline) {
+		if runDied != nil {
+			select {
+			case err := <-runDied:
+				if err != nil {
+					return fmt.Errorf("tart run failed: %w", err)
+				}
+				return fmt.Errorf("tart run exited before guest was ready")
+			default:
+			}
+		}
+		err := tartExec(id, nil, false, false, "true")
+		if err == nil {
+			progress("guest ready (%s)", time.Since(started).Round(time.Second))
+			return nil
+		}
+		last = err
+		time.Sleep(readyPollEvery)
+	}
+	if last == nil {
+		last = fmt.Errorf("timeout")
+	}
+	return fmt.Errorf("vm %q not ready after %s: %w", id, readyTimeout, last)
+}
+
+func mountVirtiofs(id, shareRoot string) error {
+	script := fmt.Sprintf(
+		`mkdir -p %q && (mountpoint -q %q || sudo mount -t virtiofs %s %q)`,
+		shareRoot, shareRoot, virtiofsTag, shareRoot,
+	)
+	return tartExec(id, nil, false, false, "sh", "-c", script)
+}
+
+func linkMounts(id, shareRoot string, mounts []runtimeplugin.PathSpec) error {
+	for _, m := range mounts {
+		if m.Guest == "" {
+			continue
+		}
+		name := shareName(m.Guest)
+		src := filepath.ToSlash(filepath.Join(shareRoot, name))
+		script := fmt.Sprintf(
+			`sudo mkdir -p %q && sudo rm -rf %q && sudo ln -s %q %q`,
+			filepath.Dir(m.Guest), m.Guest, src, m.Guest,
+		)
+		if err := tartExec(id, nil, false, false, "sh", "-c", script); err != nil {
+			return fmt.Errorf("link mount %s -> %s: %w", src, m.Guest, err)
+		}
+	}
+	return nil
+}
+
+func applyCopies(id string, copies []runtimeplugin.PathSpec) error {
+	for _, c := range copies {
+		if c.Host == "" || c.Guest == "" {
+			return fmt.Errorf("copy requires host and guest paths")
+		}
+		f, err := os.Open(c.Host)
+		if err != nil {
+			return fmt.Errorf("copy open %s: %w", c.Host, err)
+		}
+		parent := filepath.Dir(c.Guest)
+		if err := tartExec(id, nil, false, false, "sudo", "mkdir", "-p", parent); err != nil {
+			f.Close()
+			return fmt.Errorf("copy mkdir %s: %w", parent, err)
+		}
+		// Write via sudo tee so guest paths under /workspace work.
+		err = tartExec(id, f, false, false, "sudo", "tee", c.Guest)
+		f.Close()
+		if err != nil {
+			return fmt.Errorf("copy %s -> %s: %w", c.Host, c.Guest, err)
+		}
+	}
+	return nil
+}
+
+const onCreateMarker = "/var/lib/cage/on-create.done"
+
+func runOnCreate(spec runtimeplugin.Spec) error {
+	if len(spec.OnCreate) == 0 {
+		return nil
+	}
+	err := tartExec(spec.ID, nil, false, false, "test", "-f", onCreateMarker)
+	if err == nil {
+		progress("on-create already done")
+		return nil
+	}
+	if err := runHostScripts(spec.ID, spec.Workdir, "on-create", spec.OnCreate); err != nil {
+		return err
+	}
+	mark := fmt.Sprintf(`sudo mkdir -p /var/lib/cage && sudo touch %q`, onCreateMarker)
+	return tartExec(spec.ID, nil, false, false, "sh", "-c", mark)
+}
+
+func runHostScripts(id, workdir, label string, scripts []string) error {
+	if len(scripts) == 0 {
+		return nil
+	}
+	if workdir == "" {
+		workdir = "/workspace"
+	}
+	guestDir := "/tmp/cage-lifecycle"
+	if err := tartExec(id, nil, false, false, "sudo", "sh", "-c",
+		fmt.Sprintf(`mkdir -p %q && chmod 1777 %q`, guestDir, guestDir)); err != nil {
+		return fmt.Errorf("%s: mkdir %s: %w", label, guestDir, err)
+	}
+	for i, path := range scripts {
+		base := filepath.Base(path)
+		guest := fmt.Sprintf("%s/%s-%d-%s", guestDir, label, i, base)
+		hostLog, err := os.CreateTemp("", fmt.Sprintf("cage-%s-%s-*.log", label, base))
+		if err != nil {
+			return fmt.Errorf("%s host log: %w", label, err)
+		}
+		hostLogPath := hostLog.Name()
+		progress("%s %s", label, base)
+		progress("%s streaming output (also %s)", label, hostLogPath)
+
+		f, err := os.Open(path)
+		if err != nil {
+			hostLog.Close()
+			return fmt.Errorf("%s %s: %w", label, path, err)
+		}
+		err = tartExec(id, f, false, false, "sudo", "tee", guest)
+		f.Close()
+		if err != nil {
+			hostLog.Close()
+			return fmt.Errorf("%s copy %s: %w", label, path, err)
+		}
+		if err := tartExec(id, nil, false, false, "sudo", "chmod", "0755", guest); err != nil {
+			hostLog.Close()
+			return fmt.Errorf("%s chmod %s: %w", label, guest, err)
+		}
+
+		// Prefer line-buffered stdio so apt progress shows in IDE terminals.
+		run := fmt.Sprintf(`cd %q 2>/dev/null || cd /; if command -v stdbuf >/dev/null 2>&1; then exec stdbuf -oL -eL sh %q; else exec sh %q; fi`, workdir, guest, guest)
+		progress("%s ── begin (live; also %s) ──", label, hostLogPath)
+		err = tartExecLogged(id, hostLog, "sh", "-c", run)
+		hostLog.Close()
+		if err != nil {
+			progress("%s failed — log %s", label, hostLogPath)
+			return fmt.Errorf("%s %s: %w", label, path, err)
+		}
+		progress("%s ── done ── (log %s)", label, hostLogPath)
+	}
+	return nil
+}
+
+func tartExecLogged(id string, hostLog *os.File, args ...string) error {
+	cmdArgs := append([]string{"exec", id}, args...)
+	cmd := exec.Command("tart", cmdArgs...)
+	// go-plugin only SyncStderr to the host CLI — guest stream goes there with a green prefix.
+	w := termlog.GuestWriter(hostLog)
+	cmd.Stdout = w
+	cmd.Stderr = w
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("tart exec: %w", err)
+	}
+	return nil
+}
+
+func tartExec(id string, stdin io.Reader, stream, tty bool, args ...string) error {
+	cmdArgs := []string{"exec"}
+	if stdin != nil {
+		cmdArgs = append(cmdArgs, "-i")
+	}
+	if tty {
+		cmdArgs = append(cmdArgs, "-t")
+	}
+	cmdArgs = append(cmdArgs, id)
+	cmdArgs = append(cmdArgs, args...)
+	cmd := exec.Command("tart", cmdArgs...)
+	cmd.Stdin = stdin
+	var stderr bytes.Buffer
+	if stream {
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+	} else {
+		cmd.Stdout = io.Discard
+		cmd.Stderr = &stderr
+	}
+	if err := cmd.Run(); err != nil {
+		if stream {
+			return fmt.Errorf("tart exec: %w", err)
+		}
+		msg := strings.TrimSpace(stderr.String())
+		if msg != "" {
+			return fmt.Errorf("tart exec: %s", msg)
+		}
+		return fmt.Errorf("tart exec: %w", err)
+	}
+	return nil
+}
+
+func normalizeState(s string) string {
+	switch strings.ToLower(s) {
+	case "running":
+		return "running"
+	case "stopped":
+		return "stopped"
+	default:
+		return strings.ToLower(s)
+	}
+}
+
+func ensureTart() error {
+	if _, err := exec.LookPath("tart"); err != nil {
+		return fmt.Errorf("tart not found on PATH; install from https://tart.run")
+	}
+	return nil
+}
+
+func imageStampPath(id string) string {
+	return filepath.Join(".cage", "run", id, "image")
+}
+
+func writeImageStamp(id, image string) error {
+	dir := filepath.Join(".cage", "run", id)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(imageStampPath(id), []byte(image+"\n"), 0o644)
+}
+
+func readImageStamp(id string) (string, error) {
+	b, err := os.ReadFile(imageStampPath(id))
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(b)), nil
+}
+
+func runTart(args ...string) error {
+	cmd := exec.Command("tart", args...)
+	var stderr bytes.Buffer
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		msg := strings.TrimSpace(stderr.String())
+		if msg != "" {
+			return fmt.Errorf("tart %s: %s", strings.Join(args, " "), msg)
+		}
+		return fmt.Errorf("tart %s: %w", strings.Join(args, " "), err)
+	}
+	return nil
+}
