@@ -39,12 +39,23 @@ secrets:
 
 No `priority` on secrets seats. Name-based backends (`keychain`, `credential_manager`, `secret_service`) often use the same string for var name and lookup id.
 
-## Examples
+## Multi-account
 
-| Example                            | Path                                                                                     |
-| ---------------------------------- | ---------------------------------------------------------------------------------------- |
-| Single 1Password seat + http-proxy | [`examples/onepassword`](../../../examples/onepassword/)                                 |
-| Multi-account profile              | [`cage.multi-account.yaml`](../../../examples/onepassword/.cage/cage.multi-account.yaml) |
+Use `account:` on the seat, or a second seat that sets `plugin: onepassword`:
+
+```yaml
+secrets:
+  plugins:
+    onepassword:
+      account: my.1password.com
+      vars:
+        OPENAI_API_KEY: op://Engineering/openai/api-key
+    organization-op:
+      plugin: onepassword
+      account: company.1password.com
+      vars:
+        ANTHROPIC_API_KEY: op://organization/team/docs-agent/anthropic/api-key
+```
 
 ## Related config
 

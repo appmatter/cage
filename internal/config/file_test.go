@@ -309,6 +309,64 @@ fs:
 	}
 }
 
+func TestLoadResolvedDenyMasksUnderParent(t *testing.T) {
+	root := t.TempDir()
+	cageDir := filepath.Join(root, ".cage")
+	if err := os.MkdirAll(cageDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".env"), []byte("SECRET=1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "ok.txt"), []byte("ok\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "leak.pem"), []byte("key\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(cageDir, "cage.yaml"), `
+version: 1
+`+runtimeBlock+`
+fs:
+  mount:
+    ".": .
+    .git:
+      host: .git
+      permission: ro
+  deny:
+    - .env
+    - .cage
+    - "**/*.pem"
+`)
+	r, err := config.LoadResolved(root, filepath.Join(cageDir, "cage.yaml"), "darwin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{
+		"/workspace/.env":    true,
+		"/workspace/.cage":   true,
+		"/workspace/leak.pem": true,
+	}
+	got := map[string]bool{}
+	for _, g := range r.DenyMasks {
+		got[g] = true
+	}
+	for g := range want {
+		if !got[g] {
+			t.Fatalf("missing mask %q in %#v", g, r.DenyMasks)
+		}
+	}
+	if got["/workspace/.git"] {
+		t.Fatalf("explicit .git mount must not be masked: %#v", r.DenyMasks)
+	}
+	if got["/workspace/ok.txt"] {
+		t.Fatalf("ok.txt must not be masked: %#v", r.DenyMasks)
+	}
+}
+
 func TestLoadFileNestedPlugins(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "cage.yaml")

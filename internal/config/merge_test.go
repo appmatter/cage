@@ -134,12 +134,12 @@ func TestLoadProjectExample(t *testing.T) {
 	}
 }
 
-func TestLoadOnepasswordExample(t *testing.T) {
+func TestLoadSecretsPluginsFixtures(t *testing.T) {
 	_, file, _, ok := runtime.Caller(0)
 	if !ok {
 		t.Fatal("no caller")
 	}
-	dir := filepath.Join(filepath.Dir(file), "../../examples/onepassword/.cage")
+	dir := filepath.Join(filepath.Dir(file), "testdata/secrets")
 	base := filepath.Join(dir, "cage.yaml")
 	f, err := LoadFile(base)
 	if err != nil {

@@ -1,6 +1,11 @@
 # `fs.deny`
 
-Deny list checked against mount/copy **host** paths. Matching entries fail load. Does not punch holes inside an allowed directory bind.
+Deny list for mount/copy **host** paths and for **descendants under allowed binds**.
+
+1. Matching mount/copy hosts fail load.
+2. Matching paths that exist under an allowed mount host are masked in the guest at VM start (directory → mode-0 tmpfs; file → empty ro bind). Explicit mount guest roots are not masked.
+
+Live virtiofs: paths created on the host after start can still appear until the next start.
 
 ## Shape
 
@@ -32,7 +37,8 @@ Profiles **union** deny entries onto the base list.
 
 - Checked after merge, before start
 - Globs allowed (e.g. `**/*.pem`)
-- Removing a deny entry is required before mounting that path
+- Removing a deny entry is required before mounting that path as its own target
+- Under a parent mount (e.g. `".": .`), matching descendants are masked at start — not rejected at load
 
 ## Related config
 

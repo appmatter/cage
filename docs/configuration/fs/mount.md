@@ -31,6 +31,7 @@ fs:
 
 - Directory binds only (no single-file binds as the primary model)
 - Host path must not match `fs.deny`, or load fails
+- Denied descendants under an allowed mount are masked in the guest at start (see [`fs.deny`](./deny.md))
 - Merged by target key across `cage.yaml` and `cage.<name>.yaml`
 - Nested guest path under another mount (e.g. `.git` or `scratch` under `"."`):
   - `permission: ro` — own share + bind, then `remount,bind,ro` (host honored)

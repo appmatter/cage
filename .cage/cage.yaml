@@ -44,8 +44,7 @@ fs:
     - .env
     - .ssh
     - credentials
-    # Keep cage config off the agent FS so it cannot rewrite sandbox policy.
-    # (Root mount still exposes .cage contents unless the backend filters; do not add a .cage mount target.)
+    # Keep cage config off the agent FS (masked under the root mount at start).
     - .cage
     - .cage/cage.yaml
     - .cage/cage.*.yaml

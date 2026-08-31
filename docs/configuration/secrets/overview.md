@@ -31,4 +31,20 @@ Prefer `{{ secrets.<seat>.<var> }}` on `network.plugins.http-proxy` / other prot
 
 ## Example
 
-See [`examples/onepassword`](../../../examples/onepassword/) and [backends](./backends.md). Project `.cage/cage.yaml` keeps `secrets.plugins: {}` until you add real seats.
+```yaml
+secrets:
+  plugins:
+    onepassword:
+      vars:
+        OPENAI_API_KEY: op://Engineering/openai/api-key
+
+network:
+  plugins:
+    http-proxy:
+      openai:
+        url: https://api.openai.com/v1
+        headers:
+          Authorization: "Bearer {{ secrets.onepassword.OPENAI_API_KEY }}"
+```
+
+Project `.cage/cage.yaml` keeps `secrets.plugins: {}` until you add real seats. Multi-account: optional `account:` on a seat, or a second seat with `plugin: onepassword` (see [backends](./backends.md)).

@@ -389,13 +389,14 @@ func (h *HookAction) UnmarshalYAML(value *yaml.Node) error {
 
 // Resolved is the post-merge view used by inspect / start.
 type Resolved struct {
-	Path    string
-	Runtime Runtime
-	Network Network
-	Layout  Layout
-	Mounts  []ResolvedPath
-	Copies  []ResolvedPath
-	Deny    []string
+	Path      string
+	Runtime   Runtime
+	Network   Network
+	Layout    Layout
+	Mounts    []ResolvedPath
+	Copies    []ResolvedPath
+	Deny      []string
+	DenyMasks []string // guest paths to obscure under allowed mounts (exist on host at resolve)
 }
 
 // ResolvedPath is one mount or copy after merge.
@@ -466,6 +467,7 @@ func LoadResolved(projectRoot, path, goos string) (Resolved, error) {
 	if err := checkDeny(r); err != nil {
 		return Resolved{}, err
 	}
+	r.DenyMasks = computeDenyMasks(r)
 	if err := ValidateFile(merged); err != nil {
 		return Resolved{}, err
 	}
@@ -1031,18 +1033,104 @@ func checkDeny(r Resolved) error {
 	return nil
 }
 
+// computeDenyMasks lists guest paths under allowed mounts that match fs.deny and exist on the host.
+// Explicit mount guest roots are skipped (checkDeny already blocked denied mount hosts).
+func computeDenyMasks(r Resolved) []string {
+	if len(r.Deny) == 0 || len(r.Mounts) == 0 {
+		return nil
+	}
+	mounted := make(map[string]bool, len(r.Mounts))
+	for _, m := range r.Mounts {
+		mounted[filepath.Clean(m.Guest)] = true
+	}
+	var masks []string
+	seen := map[string]bool{}
+	add := func(guest string) {
+		guest = filepath.ToSlash(filepath.Clean(guest))
+		if guest == "" || guest == "." || mounted[guest] || seen[guest] {
+			return
+		}
+		for _, m := range masks {
+			if guest == m || strings.HasPrefix(guest, m+"/") {
+				return
+			}
+		}
+		seen[guest] = true
+		masks = append(masks, guest)
+	}
+	for _, m := range r.Mounts {
+		st, err := os.Stat(m.Host)
+		if err != nil || !st.IsDir() {
+			continue
+		}
+		hostRoot := m.Host
+		for _, d := range r.Deny {
+			d = filepath.ToSlash(strings.TrimPrefix(strings.TrimSpace(d), "./"))
+			if d == "" {
+				continue
+			}
+			if strings.ContainsAny(d, "*?[") {
+				_ = filepath.Walk(hostRoot, func(path string, info os.FileInfo, err error) error {
+					if err != nil || path == hostRoot {
+						return nil
+					}
+					rel, err := filepath.Rel(hostRoot, path)
+					if err != nil || rel == "." || strings.HasPrefix(rel, "..") {
+						return nil
+					}
+					relSlash := filepath.ToSlash(rel)
+					if !matchDeny(path, []string{d}) && !matchDeny(relSlash, []string{d}) {
+						return nil
+					}
+					add(filepath.ToSlash(filepath.Join(m.Guest, relSlash)))
+					if info.IsDir() {
+						return filepath.SkipDir
+					}
+					return nil
+				})
+				continue
+			}
+			cand := filepath.Join(hostRoot, filepath.FromSlash(d))
+			if _, err := os.Stat(cand); err != nil {
+				continue
+			}
+			rel, err := filepath.Rel(hostRoot, cand)
+			if err != nil || rel == "." || strings.HasPrefix(rel, "..") {
+				continue
+			}
+			add(filepath.ToSlash(filepath.Join(m.Guest, filepath.ToSlash(rel))))
+		}
+	}
+	sort.Strings(masks)
+	return masks
+}
+
 func matchDeny(host string, denies []string) bool {
 	base := filepath.Base(host)
+	hostSlash := filepath.ToSlash(host)
 	for _, d := range denies {
-		d = filepath.ToSlash(d)
-		if d == base || d == host || strings.HasSuffix(filepath.ToSlash(host), "/"+strings.TrimPrefix(d, "./")) {
+		d = filepath.ToSlash(strings.TrimPrefix(strings.TrimSpace(d), "./"))
+		if d == "" {
+			continue
+		}
+		if d == base || d == hostSlash || strings.HasSuffix(hostSlash, "/"+d) {
 			return true
 		}
-		if strings.Contains(d, "*") {
-			if ok, _ := filepath.Match(d, base); ok {
+		if !strings.ContainsAny(d, "*?[") {
+			continue
+		}
+		if ok, _ := filepath.Match(d, base); ok {
+			return true
+		}
+		if ok, _ := filepath.Match(d, hostSlash); ok {
+			return true
+		}
+		if strings.HasPrefix(d, "**/") {
+			rest := strings.TrimPrefix(d, "**/")
+			if ok, _ := filepath.Match(rest, base); ok {
 				return true
 			}
-			if ok, _ := filepath.Match(d, filepath.ToSlash(host)); ok {
+			if ok, _ := filepath.Match(rest, hostSlash); ok {
 				return true
 			}
 		}
