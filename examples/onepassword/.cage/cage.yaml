@@ -33,7 +33,7 @@ secrets:
   plugins:
     onepassword:
       vars:
-        OPENAI_API_KEY: op://Engineering/openai/api-key
+        OPENAI_API_KEY: op://appmatter/openai/api-key
 
 network:
   plugins:
