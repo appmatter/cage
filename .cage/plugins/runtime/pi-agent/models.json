@@ -3,6 +3,10 @@
     "openai": {
       "baseUrl": "https://api.openai.com/v1",
       "apiKey": "fake-key-for-agent"
+    },
+    "anthropic": {
+      "baseUrl": "https://api.anthropic.com",
+      "apiKey": "fake-key-for-agent"
     }
   }
 }

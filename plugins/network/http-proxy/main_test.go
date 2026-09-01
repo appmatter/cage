@@ -1,6 +1,7 @@
 package main
 
 import (
+	"net/http"
 	"os"
 	"testing"
 
@@ -51,14 +52,54 @@ openai:
 	if out.UpstreamURL != "https://api.openai.com/v1/chat/completions?n=1" {
 		t.Fatalf("url %q", out.UpstreamURL)
 	}
-	if out.Header["Authorization"][0] != "Bearer literal-key" {
+	if http.Header(out.Header).Get("Authorization") != "Bearer literal-key" {
 		t.Fatalf("auth %#v", out.Header)
 	}
 	if _, ok := out.Header["Host"]; ok {
 		t.Fatal("host should be stripped")
 	}
-	if out.Header["X-Guest"][0] != "1" {
+	if http.Header(out.Header).Get("X-Guest") != "1" {
 		t.Fatal("guest header kept")
+	}
+}
+
+func TestPrepareHeaderInjectCaseInsensitive(t *testing.T) {
+	h := &HTTPProxy{}
+	raw := []byte(`
+anthropic:
+  url: https://api.anthropic.com
+  headers:
+    x-api-key: "host-real"
+    anthropic-version: "2023-06-01"
+`)
+	if err := h.Configure(raw); err != nil {
+		t.Fatal(err)
+	}
+	out, err := h.Prepare(netplugin.PrepareIn{
+		Endpoint: "anthropic",
+		Method:   "POST",
+		Path:     "/v1/messages",
+		Header: map[string][]string{
+			"X-Api-Key":         {"guest-fake"},
+			"Anthropic-Version": {"2023-01-01"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := http.Header(out.Header)
+	if got.Get("x-api-key") != "host-real" {
+		t.Fatalf("api key %#v", out.Header)
+	}
+	if got.Get("anthropic-version") != "2023-06-01" {
+		t.Fatalf("version %#v", out.Header)
+	}
+	// One spelling each — no guest+host duplicate keys.
+	if n := len(out.Header["X-Api-Key"]) + len(out.Header["x-api-key"]); n != 1 {
+		t.Fatalf("duplicate api-key keys: %#v", out.Header)
+	}
+	if n := len(out.Header["Anthropic-Version"]) + len(out.Header["anthropic-version"]); n != 1 {
+		t.Fatalf("duplicate version keys: %#v", out.Header)
 	}
 }
 
