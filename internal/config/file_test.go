@@ -185,6 +185,69 @@ fs:
 	}
 }
 
+func TestLoadResolvedDenyActive(t *testing.T) {
+	root := t.TempDir()
+	cageDir := filepath.Join(root, ".cage")
+	if err := os.MkdirAll(cageDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(cageDir, "cage.yaml"), `
+version: 1
+`+runtimeBlock+`
+fs:
+  layout:
+    mode: flat
+  mount:
+    ".": .
+  deny:
+    - .git
+    - .cage
+    - .cage/cage.yaml
+`)
+	write(t, filepath.Join(cageDir, "cage.dogfood.yaml"), `
+extends: cage.yaml
+fs:
+  mount:
+    .cage:
+      host: .cage
+      permission: ro
+  deny:
+    - path: .cage
+      active: false
+    - path: .cage/cage.yaml
+      active: false
+`)
+	r, err := config.LoadResolved(root, filepath.Join(cageDir, "cage.dogfood.yaml"), "darwin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range r.Deny {
+		if d == ".cage" || d == ".cage/cage.yaml" {
+			t.Fatalf("deny should drop .cage entries: %v", r.Deny)
+		}
+	}
+	foundGit := false
+	for _, d := range r.Deny {
+		if d == ".git" {
+			foundGit = true
+		}
+	}
+	if !foundGit {
+		t.Fatalf("deny should keep .git: %v", r.Deny)
+	}
+	byTarget := map[string]config.ResolvedPath{}
+	for _, m := range r.Mounts {
+		byTarget[m.Target] = m
+	}
+	cageMount, ok := byTarget[".cage"]
+	if !ok {
+		t.Fatal(".cage mount missing")
+	}
+	if cageMount.Permission != "ro" {
+		t.Fatalf(".cage permission=%q", cageMount.Permission)
+	}
+}
+
 func TestLoadResolvedMultiLevel(t *testing.T) {
 	root := t.TempDir()
 	cageDir := filepath.Join(root, ".cage")
@@ -346,8 +409,8 @@ fs:
 		t.Fatal(err)
 	}
 	want := map[string]bool{
-		"/workspace/.env":    true,
-		"/workspace/.cage":   true,
+		"/workspace/.env":     true,
+		"/workspace/.cage":    true,
 		"/workspace/leak.pem": true,
 	}
 	got := map[string]bool{}
