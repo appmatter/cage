@@ -23,7 +23,24 @@ fs:
     - "**/*.key"
 ```
 
-Profiles **union** deny entries onto the base list.
+Profiles **union** deny entries onto the base list. Turn a base entry off with `active: false` (exact path match):
+
+```yaml
+# cage.dogfood.yaml
+extends: cage.yaml
+fs:
+  mount:
+    .cage:
+      host: .cage
+      permission: ro
+  deny:
+    - path: .cage
+      active: false
+    - path: .cage/cage.yaml
+      active: false
+    - path: .cage/cage.*.yaml
+      active: false
+```
 
 ## Typical entries
 
@@ -37,7 +54,7 @@ Profiles **union** deny entries onto the base list.
 
 - Checked after merge, before start
 - Globs allowed (e.g. `**/*.pem`)
-- Removing a deny entry is required before mounting that path as its own target
+- Removing a deny entry is required before mounting that path as its own target (`path` + `active: false` in a profile)
 - Under a parent mount (e.g. `".": .`), matching descendants are masked at start — not rejected at load
 
 ## Related config
