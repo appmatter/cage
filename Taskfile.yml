@@ -112,6 +112,11 @@ tasks:
     cmds:
       - cage bake delete {{.CLI_ARGS}}
 
+  test:integration:
+    desc: Live Tart/runtime ITs (darwin + -tags integration); skips if tart/image/softnet missing
+    cmds:
+      - go test -tags integration ./plugins/runtime/... -count=1 -v
+
   test:network:
     desc: Headless proxy+softnet smoke (scripts/test-network.sh); skips if tart/softnet missing
     cmds:

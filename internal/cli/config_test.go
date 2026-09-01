@@ -49,6 +49,16 @@ fs:
   deny:
     - .git
     - .env
+secrets:
+  plugins:
+    onepassword:
+      vars:
+        OPENAI_API_KEY: op://x
+    organization-op:
+      plugin: onepassword
+      account: company.1password.com
+      vars:
+        ANTHROPIC_API_KEY: op://y
 `), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -68,6 +78,8 @@ fs:
 		filepath.Join(root, "tests") + " → /workspace/tests\t(ro)",
 		filepath.Join(root, ".env.example") + " → /workspace/.env",
 		".git",
+		"onepassword\tplugin=onepassword\tvars=OPENAI_API_KEY",
+		"organization-op\tplugin=onepassword\taccount=company.1password.com\tvars=ANTHROPIC_API_KEY",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("missing %q in:\n%s", want, out)

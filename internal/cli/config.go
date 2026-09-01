@@ -110,6 +110,8 @@ func formatInspect(w io.Writer, projectRoot string, r config.Resolved) {
 			}
 		}
 	}
+	fmt.Fprintln(w, "secrets:")
+	writeSecrets(w, r.Secrets)
 	fmt.Fprintf(w, "layout:\t%s\n", r.Layout.Mode)
 	fmt.Fprintln(w, "\nmounts:")
 	if len(r.Mounts) == 0 {
@@ -137,6 +139,37 @@ func formatInspect(w io.Writer, projectRoot string, r config.Resolved) {
 		for _, g := range r.DenyMasks {
 			fmt.Fprintf(w, "  %s\n", g)
 		}
+	}
+}
+
+func writeSecrets(w io.Writer, s config.Secrets) {
+	if len(s.Plugins) == 0 {
+		fmt.Fprintln(w, "  (none)")
+		return
+	}
+	seats := make([]string, 0, len(s.Plugins))
+	for seat := range s.Plugins {
+		seats = append(seats, seat)
+	}
+	sort.Strings(seats)
+	for _, seat := range seats {
+		store := s.Plugins[seat]
+		fmt.Fprintf(w, "  %s\tplugin=%s", seat, store.PluginID(seat))
+		if store.Account != "" {
+			fmt.Fprintf(w, "\taccount=%s", store.Account)
+		}
+		if store.Region != "" {
+			fmt.Fprintf(w, "\tregion=%s", store.Region)
+		}
+		if n := len(store.Vars); n > 0 {
+			keys := make([]string, 0, n)
+			for k := range store.Vars {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			fmt.Fprintf(w, "\tvars=%s", stringsJoin(keys))
+		}
+		fmt.Fprintln(w)
 	}
 }
 

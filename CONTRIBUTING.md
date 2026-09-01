@@ -24,10 +24,11 @@ Dev loop (needs [Task](https://taskfile.dev)):
 task              # delete VM, reinstall CLI+tart+egress, create, start
 task recreate     # delete/create/start only
 task start        # CONFIG=.cage/cage.docs-agent.yaml task start
-task test:network # headless proxy+softnet smoke (skips if tart/softnet/privileges missing)
+task test:integration # live Tart/runtime ITs (darwin; skips if tart/image missing)
+task test:network     # headless proxy+softnet smoke (skips if tart/softnet/privileges missing)
 ```
 
-Or: `go test -tags network ./internal/network/` (darwin + network tag; same script).
+Or: `go test -tags integration ./plugins/runtime/...` / `go test -tags network ./internal/network/`.
 
 Manual format:
 

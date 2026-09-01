@@ -10,7 +10,7 @@ Legend: **Must** = fail CI if broken on that backend. **Should** = required befo
 
 | # | Requirement | How to prove | Tart today |
 | --- | --- | --- | --- |
-| L1 | Create → start → status `running` → stop → delete | smoke / IT | `plugins/runtime/tart` ITs, `task test:network` |
+| L1 | Create → start → status `running` → stop → delete | smoke / IT | `task test:integration`, `task test:network` |
 | L2 | `Exec` runs argv in guest; exit status reflected | one-shot `cage vm exec -- true` / `false` | network scripts, ITs |
 | L3 | Interactive `Exec` with TTY (login shell) | `cage vm exec` (no args) | manual / CLI |
 | L4 | Mounts appear at guest paths after start | write host file, read in guest | `TestIntegrationMountAndCopy` |
@@ -62,6 +62,7 @@ When adding a backend: implement the contract, then land the same **outcomes** (
 ## Commands (darwin / Tart)
 
 ```bash
+task test:integration    # live Tart mount/copy/softnet/bake ITs
 task test:network        # proxy env + IPv4 direct blocked
 task test:network:ipv6   # IPv6 direct blocked
 ```

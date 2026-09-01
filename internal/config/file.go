@@ -422,6 +422,7 @@ type Resolved struct {
 	Path      string
 	Runtime   Runtime
 	Network   Network
+	Secrets   Secrets
 	Layout    Layout
 	Mounts    []ResolvedPath
 	Copies    []ResolvedPath
@@ -483,6 +484,7 @@ func LoadResolved(projectRoot, path, goos string) (Resolved, error) {
 		Path:    abs,
 		Runtime: merged.Runtime,
 		Network: merged.Network,
+		Secrets: Secrets{Plugins: mergeSecretPlugins(merged.Secrets.Plugins, nil)},
 		Layout:  merged.FS.Layout,
 		Deny:    uniqueStrings(denyPaths(merged.FS.Deny)),
 	}
