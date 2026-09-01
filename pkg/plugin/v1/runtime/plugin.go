@@ -36,6 +36,7 @@ type Spec struct {
 	Env          map[string]string // runtime.env only — never host os.Environ
 	Mounts       []PathSpec
 	Copies       []PathSpec
+	DenyMasks    []string // guest paths to obscure under mounts (fs.deny descendants)
 	OnCreate     []string // abs host script paths; plugin chooses interpreter
 	OnStart      []string
 	OnDestroy    []string

@@ -1,6 +1,11 @@
 # `fs.deny`
 
-Deny list checked against mount/copy **host** paths. Matching entries fail load. Does not punch holes inside an allowed directory bind.
+Deny list for mount/copy **host** paths and for **descendants under allowed binds**.
+
+1. Matching mount/copy hosts fail load.
+2. Matching paths that exist under an allowed mount host are masked in the guest at VM start (directory → mode-0 tmpfs; file → empty ro bind). Explicit mount guest roots are not masked.
+
+Live virtiofs: paths created on the host after start can still appear until the next start.
 
 ## Shape
 
@@ -18,13 +23,30 @@ fs:
     - "**/*.key"
 ```
 
-Profiles **union** deny entries onto the base list.
+Profiles **union** deny entries onto the base list. Turn a base entry off with `active: false` (exact path match):
+
+```yaml
+# cage.dogfood.yaml
+extends: cage.yaml
+fs:
+  mount:
+    .cage:
+      host: .cage
+      permission: ro
+  deny:
+    - path: .cage
+      active: false
+    - path: .cage/cage.yaml
+      active: false
+    - path: .cage/cage.*.yaml
+      active: false
+```
 
 ## Typical entries
 
 | Entry                         | Why                                                                   |
 | ----------------------------- | --------------------------------------------------------------------- |
-| `.git`                        | Drop this and add `fs.mount` for `.git` if the agent needs native git |
+| `.git`                        | Drop this and add `fs.mount` `.git` with `permission: ro` under a parent mount if the agent needs native git (read-only) |
 | `.env`, `.ssh`, `credentials` | Real secrets stay on the host; seed via `fs.copy` if needed           |
 | `.cage`, cage yaml          | Agent must not rewrite sandbox policy                                 |
 
@@ -32,7 +54,8 @@ Profiles **union** deny entries onto the base list.
 
 - Checked after merge, before start
 - Globs allowed (e.g. `**/*.pem`)
-- Removing a deny entry is required before mounting that path
+- Removing a deny entry is required before mounting that path as its own target (`path` + `active: false` in a profile)
+- Under a parent mount (e.g. `".": .`), matching descendants are masked at start — not rejected at load
 
 ## Related config
 

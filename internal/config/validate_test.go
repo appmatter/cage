@@ -76,31 +76,27 @@ func TestValidateSingleTerminateNoPriority(t *testing.T) {
 	}
 }
 
-func TestValidateSecretsAliasUnique(t *testing.T) {
+func TestValidateSecretsUnknownDep(t *testing.T) {
 	f := File{
-		Secrets: map[string]map[string]SecretStore{
-			"onepassword": {"shared": {Vars: map[string]string{"A": "op://a"}}},
-			"keychain":    {"shared": {Vars: map[string]string{"B": "B"}}},
-		},
+		Secrets: Secrets{Plugins: map[string]SecretStore{
+			"personal-op": {Plugin: "onepassword", Vars: map[string]string{"A": "op://a"}, Uses: []string{"missing"}},
+		}},
 	}
 	if err := ValidateFile(f); err == nil {
-		t.Fatal("expected duplicate alias error")
+		t.Fatal("expected unknown dependency error")
 	}
 }
 
 func TestValidateSecretsDAG(t *testing.T) {
 	f := File{
-		Secrets: map[string]map[string]SecretStore{
-			"onepassword": {
-				"personal-op": {Vars: map[string]string{"AWS_KEY": "op://x"}},
+		Secrets: Secrets{Plugins: map[string]SecretStore{
+			"personal-op": {Plugin: "onepassword", Vars: map[string]string{"AWS_KEY": "op://x"}},
+			"dev-sm": {
+				Plugin: "aws_sm",
+				Uses:   []string{"personal-op"},
+				Vars:   map[string]string{"DB": "arn:x"},
 			},
-			"aws_sm": {
-				"dev-sm": {
-					Uses: []string{"personal-op"},
-					Vars: map[string]string{"DB": "arn:x"},
-				},
-			},
-		},
+		}},
 	}
 	if err := ValidateFile(f); err != nil {
 		t.Fatal(err)
@@ -109,12 +105,10 @@ func TestValidateSecretsDAG(t *testing.T) {
 
 func TestValidateSecretsCycle(t *testing.T) {
 	f := File{
-		Secrets: map[string]map[string]SecretStore{
-			"onepassword": {
-				"a": {Uses: []string{"b"}, Vars: map[string]string{"X": "1"}},
-				"b": {Uses: []string{"a"}, Vars: map[string]string{"Y": "2"}},
-			},
-		},
+		Secrets: Secrets{Plugins: map[string]SecretStore{
+			"a": {Uses: []string{"b"}, Vars: map[string]string{"X": "1"}},
+			"b": {Uses: []string{"a"}, Vars: map[string]string{"Y": "2"}},
+		}},
 	}
 	if err := ValidateFile(f); err == nil {
 		t.Fatal("expected cycle error")
@@ -123,14 +117,10 @@ func TestValidateSecretsCycle(t *testing.T) {
 
 func TestValidateSecretsTemplateDep(t *testing.T) {
 	f := File{
-		Secrets: map[string]map[string]SecretStore{
-			"onepassword": {
-				"op": {Vars: map[string]string{"K": "op://k"}},
-			},
-			"file": {
-				"f": {Vars: map[string]string{"X": "{{ secrets.op.K }}"}},
-			},
-		},
+		Secrets: Secrets{Plugins: map[string]SecretStore{
+			"op": {Plugin: "onepassword", Vars: map[string]string{"K": "op://k"}},
+			"f":  {Plugin: "file", Vars: map[string]string{"X": "{{ secrets.op.K }}"}},
+		}},
 	}
 	if err := ValidateFile(f); err != nil {
 		t.Fatal(err)

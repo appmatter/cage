@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"net/http"
 	"net/url"
 	"os"
 	"regexp"
@@ -126,16 +127,18 @@ func (h *HTTPProxy) Prepare(in netplugin.PrepareIn) (netplugin.PrepareOut, error
 		}
 		port = n
 	}
-	hdr := map[string][]string{}
+	hdr := http.Header{}
 	for k, vals := range in.Header {
 		lk := strings.ToLower(k)
 		if lk == "host" || lk == "content-length" {
 			continue
 		}
-		hdr[k] = append([]string{}, vals...)
+		for _, v := range vals {
+			hdr.Add(k, v)
+		}
 	}
 	for k, v := range ep.Headers {
-		hdr[k] = []string{v}
+		hdr.Set(k, v) // case-insensitive replace of guest values
 	}
 	return netplugin.PrepareOut{
 		UpstreamHost: base.Hostname(),

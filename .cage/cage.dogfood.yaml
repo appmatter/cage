@@ -1,0 +1,15 @@
+# Dogfood profile: readable .cage (ro) for developing Cage itself.
+extends: cage.yaml
+
+fs:
+  mount:
+    .cage:
+      host: .cage
+      permission: ro
+  deny:
+    - path: .cage
+      active: false
+    - path: .cage/cage.yaml
+      active: false
+    - path: .cage/cage.*.yaml
+      active: false

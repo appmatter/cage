@@ -1,19 +1,19 @@
 # Secret backends
 
-`secrets.<plugin>.<alias>` is a named store. The parent key is the backend plugin; each alias maps variable names to references. Values never appear in config — only refs. Cage resolves them on the host when applying templates.
+`secrets.plugins.<seat>` is a named store seat. Optional `plugin:` is the install name (omit = seat name). Values never appear in config — only refs. Cage resolves them on the host when applying templates.
 
-Prefer `{{ secrets.<alias>.<var> }}` on protocol proxies under `network.plugins` (keep aliases unique across plugins).
+Prefer `{{ secrets.<seat>.<var> }}` on protocol proxies under `network.plugins`.
 
 ## Backends
 
-| `plugin`             | Platform | Use for                                                    |
-| -------------------- | -------- | ---------------------------------------------------------- |
-| `keychain`           | macOS    | Keychain Access items, looked up by name.                  |
-| `credential_manager` | Windows  | Windows Credential Manager.                                |
-| `secret_service`     | Linux    | FreeDesktop Secret Service (e.g. GNOME Keyring, KWallet).  |
-| `file`               | any      | Encrypted local file store (path configured on the alias). |
-| `onepassword`        | any      | 1Password refs (`op://…`).                                 |
-| `aws_sm`             | any      | AWS Secrets Manager (ARN or name + region).                |
+| `plugin`             | Platform | Use for                                                   |
+| -------------------- | -------- | --------------------------------------------------------- |
+| `keychain`           | macOS    | Keychain Access items, looked up by name.                 |
+| `credential_manager` | Windows  | Windows Credential Manager.                               |
+| `secret_service`     | Linux    | FreeDesktop Secret Service (e.g. GNOME Keyring, KWallet). |
+| `file`               | any      | Encrypted local file store (path configured on the seat). |
+| `onepassword`        | any      | 1Password refs (`op://…`).                                |
+| `aws_sm`             | any      | AWS Secrets Manager (ARN or name + region).               |
 
 OS stores are separate plugins — APIs differ; wrong backend for the host fails clearly.
 
@@ -26,39 +26,38 @@ OS stores are separate plugins — APIs differ; wrong backend for the host fails
 
 ```yaml
 secrets:
-  <plugin>: # onepassword | keychain | credential_manager | secret_service | file | aws_sm
-    <alias>:
-      uses: [other-alias] # optional explicit deps
-      # plugin-specific fields (vault, region, path, …)
+  plugins:
+    <seat>:
+      plugin: onepassword # omit when seat == install name
+      package: git:… # optional source override
+      uses: [other-seat] # optional explicit deps
+      account: … # onepassword: op --account
+      # plugin-specific fields (region, path, …)
       vars:
-        VAR_NAME: <ref> # lookup id; may also embed {{ secrets.<alias>.<var> }}
+        VAR_NAME: <ref> # lookup id; may also embed {{ secrets.<seat>.<var> }}
 ```
 
-No `priority` on secrets plugins or aliases. Name-based backends (`keychain`, `credential_manager`, `secret_service`) often use the same string for var name and lookup id.
+No `priority` on secrets seats. Name-based backends (`keychain`, `credential_manager`, `secret_service`) often use the same string for var name and lookup id.
 
-## Related config
+## Multi-account
 
-- **`network.plugins.http-proxy` / …** — preferred place for `{{ secrets.<alias>.<var> }}`
-- **`runtime.env`** — placeholders preferred; secret templates allowed but put values in the guest
-
-## Examples
+Use `account:` on the seat, or a second seat that sets `plugin: onepassword`:
 
 ```yaml
 secrets:
-  onepassword:
-    personal-op:
+  plugins:
+    onepassword:
+      account: my.1password.com
       vars:
         OPENAI_API_KEY: op://Engineering/openai/api-key
-
-runtime:
-  env:
-    OPENAI_API_KEY: "fake-key-for-agent"
-
-network:
-  plugins:
-    http-proxy:
-      openai:
-        url: https://api.openai.com/v1
-        headers:
-          Authorization: "Bearer {{ secrets.personal-op.OPENAI_API_KEY }}"
+    organization-op:
+      plugin: onepassword
+      account: company.1password.com
+      vars:
+        ANTHROPIC_API_KEY: op://organization/team/docs-agent/anthropic/api-key
 ```
+
+## Related config
+
+- **`network.plugins.http-proxy` / …** — preferred place for `{{ secrets.<seat>.<var> }}`
+- **`runtime.env`** — placeholders preferred; secret templates allowed but put values in the guest

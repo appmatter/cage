@@ -132,6 +132,12 @@ func formatInspect(w io.Writer, projectRoot string, r config.Resolved) {
 	for _, d := range r.Deny {
 		fmt.Fprintf(w, "  %s\n", d)
 	}
+	if len(r.DenyMasks) > 0 {
+		fmt.Fprintln(w, "\ndeny masks (guest):")
+		for _, g := range r.DenyMasks {
+			fmt.Fprintf(w, "  %s\n", g)
+		}
+	}
 }
 
 func writeResolvedHooks(w io.Writer, rt config.Runtime) {

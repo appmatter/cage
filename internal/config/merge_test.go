@@ -32,8 +32,9 @@ fs:
       allow:
         - OPENAI_API_KEY
 secrets:
-  onepassword:
+  plugins:
     personal-op:
+      plugin: onepassword
       vars:
         OPENAI_API_KEY: op://base
         KEEP: op://keep
@@ -54,12 +55,12 @@ fs:
     secrets_scanner:
       on_find: fail
 secrets:
-  onepassword:
+  plugins:
     personal-op:
       vars:
         OPENAI_API_KEY: op://override
-  keychain:
     local-keys:
+      plugin: keychain
       vars:
         GROQ_API_KEY: GROQ_API_KEY
 network:
@@ -87,12 +88,15 @@ network:
 	if len(merged.FS.Plugins.SecretsScanner.Allow) != 1 || merged.FS.Plugins.SecretsScanner.Allow[0].Name != "OPENAI_API_KEY" {
 		t.Fatalf("scanner allow kept: %#v", merged.FS.Plugins.SecretsScanner.Allow)
 	}
-	op := merged.Secrets["onepassword"]["personal-op"]
+	op := merged.Secrets.Plugins["personal-op"]
+	if op.Plugin != "onepassword" {
+		t.Fatalf("plugin id kept: %#v", op)
+	}
 	if op.Vars["OPENAI_API_KEY"] != "op://override" || op.Vars["KEEP"] != "op://keep" {
 		t.Fatalf("secret vars merge: %#v", op.Vars)
 	}
-	if merged.Secrets["keychain"]["local-keys"].Vars["GROQ_API_KEY"] == "" {
-		t.Fatalf("keychain missing: %#v", merged.Secrets)
+	if merged.Secrets.Plugins["local-keys"].Vars["GROQ_API_KEY"] == "" {
+		t.Fatalf("keychain missing: %#v", merged.Secrets.Plugins)
 	}
 	if merged.Network.Plugins.HTTPProxy == nil || merged.Network.Plugins.HTTPProxy.Endpoints["openai"].URL == "" {
 		t.Fatal("openai proxy dropped")
@@ -102,37 +106,44 @@ network:
 	}
 }
 
-func TestLoadProjectExample(t *testing.T) {
+func TestLoadSecretsPluginsFixtures(t *testing.T) {
 	_, file, _, ok := runtime.Caller(0)
 	if !ok {
 		t.Fatal("no caller")
 	}
-	path := filepath.Join(filepath.Dir(file), "../../.cage/cage.yaml")
-	f, err := LoadFile(path)
+	dir := filepath.Join(filepath.Dir(file), "testdata/secrets")
+	base := filepath.Join(dir, "cage.yaml")
+	f, err := LoadFile(base)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := ValidateFile(f); err != nil {
 		t.Fatal(err)
 	}
-	if f.Runtime.Plugins["tart"].Image == "" || f.Runtime.Plugins["tart"].Priority == nil || *f.Runtime.Plugins["tart"].Priority != 1 {
-		t.Fatalf("runtime=%#v", f.Runtime.Plugins)
-	}
-	if f.FS.Plugins.Mention == nil || f.FS.Plugins.SecretsScanner == nil {
-		t.Fatalf("fs plugins mention=%v scanner=%v", f.FS.Plugins.Mention != nil, f.FS.Plugins.SecretsScanner != nil)
-	}
-	if f.Secrets["onepassword"]["personal-op"].Vars["OPENAI_API_KEY"] == "" {
-		t.Fatalf("secrets=%#v", f.Secrets)
+	op := f.Secrets.Plugins["onepassword"]
+	if op.Plugin != "" || op.Vars["OPENAI_API_KEY"] == "" {
+		t.Fatalf("onepassword seat=%#v", op)
 	}
 	http := f.Network.Plugins.HTTPProxy
-	pg := f.Network.Plugins.PostgresProxy
-	if http == nil || http.Endpoints["openai"].URL == "" || pg == nil || pg.Endpoints["development-postgres"].Listen != 5432 {
-		t.Fatalf("proxies=%#v", f.Network.Plugins)
+	if http == nil || http.Endpoints["openai"].Headers["Authorization"] == "" {
+		t.Fatalf("http-proxy=%#v", http)
 	}
-	if http.Priority == nil || *http.Priority != 1 || pg.Priority == nil || *pg.Priority != 2 {
-		t.Fatalf("terminate priorities http=%v pg=%v", http.Priority, pg.Priority)
+
+	merged, err := loadChain(filepath.Join(dir, "cage.multi-account.yaml"), nil)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if f.Network.Plugins.Egress == nil || len(f.Network.Plugins.Egress.Allow) == 0 {
-		t.Fatal("egress empty")
+	if err := ValidateFile(merged); err != nil {
+		t.Fatal(err)
+	}
+	if merged.Secrets.Plugins["onepassword"].Account != "my.1password.com" {
+		t.Fatalf("account merge: %#v", merged.Secrets.Plugins["onepassword"])
+	}
+	org := merged.Secrets.Plugins["organization-op"]
+	if org.Plugin != "onepassword" || org.Vars["ANTHROPIC_API_KEY"] == "" {
+		t.Fatalf("organization-op=%#v", org)
+	}
+	if merged.Network.Plugins.HTTPProxy.Endpoints["anthropic"].URL == "" {
+		t.Fatal("anthropic proxy missing")
 	}
 }

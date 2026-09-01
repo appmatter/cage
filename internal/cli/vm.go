@@ -357,6 +357,7 @@ func loadSpec(cmd *cobra.Command, configPath, id string) (runtimeplugin.Spec, st
 			Host: c.Host, Guest: c.Guest, Permission: c.Permission,
 		})
 	}
+	spec.DenyMasks = append([]string{}, r.DenyMasks...)
 	return spec, backendName, r, nil
 }
 

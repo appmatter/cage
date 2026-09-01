@@ -1,7 +1,7 @@
 version: "3"
 
 vars:
-  CONFIG: .cage/cage.yaml
+  CONFIG: .cage/cage.dogfood.yaml
   VM_ID: cage-vm
 
 tasks:
@@ -33,6 +33,11 @@ tasks:
     desc: Show resolved config
     cmds:
       - cage config inspect --config {{.CONFIG}}
+
+  example:check:
+    desc: Load/validate project .cage/cage.yaml (lefthook; not in go test ./...)
+    cmds:
+      - go test -tags example ./internal/config/ -run TestLoadProjectExample -count=1
 
   delete:
     desc: Delete VM
