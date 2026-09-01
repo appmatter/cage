@@ -113,9 +113,9 @@ tasks:
       - cage bake delete {{.CLI_ARGS}}
 
   test:integration:
-    desc: Live Tart/runtime ITs (darwin + -tags integration); skips if tart/image/softnet missing
+    desc: Live ITs (Tart/runtime + host http-proxy); skips when tools/image missing
     cmds:
-      - go test -tags integration ./plugins/runtime/... -count=1 -v
+      - go test -tags integration ./plugins/runtime/... ./internal/network/ -count=1 -v
 
   test:network:
     desc: Headless proxy+softnet smoke (scripts/test-network.sh); skips if tart/softnet missing
@@ -123,9 +123,9 @@ tasks:
       - bash scripts/test-network.sh
 
   test:network:http-proxy:
-    desc: Host http-proxy + egress + mock authed API (no VM)
+    desc: Host http-proxy + egress + mock authed API (no VM; -tags integration)
     cmds:
-      - go test ./internal/network/ -run TestHTTPProxyHostAuthIntegration -count=1 -v
+      - go test -tags integration ./internal/network/ -run TestHTTPProxyHostAuthIntegration -count=1 -v
 
   test:network:ipv6:
     desc: Softnet host-only must block IPv6 direct egress (scripts/test-network-ipv6.sh)
