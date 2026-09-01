@@ -12,10 +12,10 @@ import (
 
 // File is a full cage config document (keys follow contexts — see docs/project-structure.md).
 type File struct {
-	Version int                               `yaml:"version"`
-	Extends string                            `yaml:"extends"`
-	Runtime Runtime                           `yaml:"runtime"`
-	FS      FS                                `yaml:"fs"`
+	Version int     `yaml:"version"`
+	Extends string  `yaml:"extends"`
+	Runtime Runtime `yaml:"runtime"`
+	FS      FS      `yaml:"fs"`
 	Secrets Secrets `yaml:"secrets"`
 	Network Network `yaml:"network"`
 }
@@ -96,9 +96,39 @@ type FS struct {
 	Layout  Layout                  `yaml:"layout"`
 	Mount   PathMap                 `yaml:"mount"`
 	Copy    PathMap                 `yaml:"copy"`
-	Deny    []string                `yaml:"deny"`
+	Deny    []DenyEntry             `yaml:"deny"`
 	Plugins FSPlugins               `yaml:"plugins"`
 	Hooks   map[string][]HookAction `yaml:"hooks"`
+}
+
+// DenyEntry is one fs.deny path. Scalar path, or map with path + optional active.
+type DenyEntry struct {
+	Path   string
+	Active bool // false = drop matching paths on merge (default true)
+}
+
+// UnmarshalYAML accepts a string path or {path, active}.
+func (d *DenyEntry) UnmarshalYAML(value *yaml.Node) error {
+	if value.Kind == yaml.ScalarNode {
+		*d = DenyEntry{Path: value.Value, Active: true}
+		return nil
+	}
+	var raw struct {
+		Path   string `yaml:"path"`
+		Active *bool  `yaml:"active"`
+	}
+	if err := value.Decode(&raw); err != nil {
+		return err
+	}
+	if strings.TrimSpace(raw.Path) == "" {
+		return fmt.Errorf("fs.deny entry: path is required")
+	}
+	active := true
+	if raw.Active != nil {
+		active = *raw.Active
+	}
+	*d = DenyEntry{Path: raw.Path, Active: active}
+	return nil
 }
 
 // FSPlugins are installable seats under fs.plugins.
@@ -454,7 +484,7 @@ func LoadResolved(projectRoot, path, goos string) (Resolved, error) {
 		Runtime: merged.Runtime,
 		Network: merged.Network,
 		Layout:  merged.FS.Layout,
-		Deny:    uniqueStrings(merged.FS.Deny),
+		Deny:    uniqueStrings(denyPaths(merged.FS.Deny)),
 	}
 	r.Mounts, err = resolveMap(root, merged.Runtime.Workdir, merged.FS.Layout.Mode, merged.FS.Mount)
 	if err != nil {
@@ -569,7 +599,7 @@ func mergeFiles(base, over File) File {
 	}
 	out.FS.Mount = mergePathMap(base.FS.Mount, over.FS.Mount)
 	out.FS.Copy = mergePathMap(base.FS.Copy, over.FS.Copy)
-	out.FS.Deny = append(append([]string{}, base.FS.Deny...), over.FS.Deny...)
+	out.FS.Deny = mergeDeny(base.FS.Deny, over.FS.Deny)
 	if over.FS.Plugins.Mention != nil {
 		m := Mention{}
 		if out.FS.Plugins.Mention != nil {
@@ -983,6 +1013,40 @@ func mergePathMap(base, over PathMap) PathMap {
 			continue
 		}
 		out[k] = v
+	}
+	return out
+}
+
+// mergeDeny unions path entries; over entries with active: false drop matching paths.
+func mergeDeny(base, over []DenyEntry) []DenyEntry {
+	out := append([]DenyEntry{}, base...)
+	for _, e := range over {
+		path := strings.TrimSpace(e.Path)
+		if path == "" {
+			continue
+		}
+		if !e.Active {
+			kept := out[:0]
+			for _, x := range out {
+				if x.Path != path {
+					kept = append(kept, x)
+				}
+			}
+			out = kept
+			continue
+		}
+		out = append(out, DenyEntry{Path: path, Active: true})
+	}
+	return out
+}
+
+func denyPaths(in []DenyEntry) []string {
+	out := make([]string, 0, len(in))
+	for _, e := range in {
+		if !e.Active || e.Path == "" {
+			continue
+		}
+		out = append(out, e.Path)
 	}
 	return out
 }
