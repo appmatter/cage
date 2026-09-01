@@ -18,12 +18,13 @@ tasks:
       - go install ./cmd/cage
 
   plugin:
-    desc: Build and install tart + pi-agent + egress + http-proxy plugins into .cage/.cache/plugins
+    desc: Build and install tart + pi-agent + egress + http-proxy + onepassword plugins into .cage/.cache/plugins
     cmds:
       - cage plugin install -l ./plugins/runtime/tart
       - cage plugin install -l ./plugins/runtime/pi-agent
       - cage plugin install -l ./plugins/network/egress
       - cage plugin install -l ./plugins/network/http-proxy
+      - cage plugin install -l ./plugins/secrets/onepassword
 
   reinstall:
     desc: Install CLI + runtime/network plugins

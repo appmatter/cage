@@ -15,7 +15,7 @@ func TestResolveTemplate(t *testing.T) {
 		t.Fatalf("got %q err=%v", got, err)
 	}
 	if _, err := resolveTemplate("{{ secrets.x.Y }}"); err == nil {
-		t.Fatal("expected secrets error")
+		t.Fatal("expected unresolved secrets error")
 	}
 	if _, err := resolveTemplate("{{ env.MISSING_CAGE_VAR }}"); err == nil {
 		t.Fatal("expected missing env")

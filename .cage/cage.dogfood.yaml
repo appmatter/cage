@@ -18,6 +18,8 @@ fs:
 secrets:
   plugins:
     onepassword:
+      account: my.1password.com # op --account
+      app: true # desktop CLI integration (default if omitted)
       vars:
         OPENAI_API_KEY: op://appmatter/openai/api-key
         ANTHROPIC_API_KEY: op://appmatter/anthropic/api-key

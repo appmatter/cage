@@ -7,8 +7,7 @@
 
 ```bash
 cd examples/onepassword
-# after the onepassword plugin ships:
-# cage plugin install -l ../../plugins/secrets/onepassword
+cage plugin install -l ../../plugins/secrets/onepassword
 cage config inspect
 cage config inspect --config .cage/cage.multi-account.yaml
 ```

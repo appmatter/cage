@@ -70,6 +70,13 @@
           "reason": "Anthropic models (if used)"
         }
       ]
+    },
+    {
+      "kind": "secrets",
+      "name": "onepassword",
+      "command": "cage-secrets-onepassword.cageplugin",
+      "source": "plugins/secrets/onepassword",
+      "pin": "local"
     }
   ]
 }

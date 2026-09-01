@@ -10,8 +10,8 @@ import (
 
 	"github.com/appmatter/cage/internal/bake"
 	"github.com/appmatter/cage/internal/config"
-	"github.com/appmatter/cage/internal/host"
 	"github.com/appmatter/cage/internal/hooks"
+	"github.com/appmatter/cage/internal/host"
 )
 
 func newConfigCmd() *cobra.Command {
@@ -157,6 +157,9 @@ func writeSecrets(w io.Writer, s config.Secrets) {
 		fmt.Fprintf(w, "  %s\tplugin=%s", seat, store.PluginID(seat))
 		if store.Account != "" {
 			fmt.Fprintf(w, "\taccount=%s", store.Account)
+		}
+		if store.App != nil {
+			fmt.Fprintf(w, "\tapp=%v", *store.App)
 		}
 		if store.Region != "" {
 			fmt.Fprintf(w, "\tregion=%s", store.Region)

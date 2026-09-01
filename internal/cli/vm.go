@@ -11,10 +11,11 @@ import (
 	"github.com/appmatter/cage/internal/bake"
 	"github.com/appmatter/cage/internal/config"
 	"github.com/appmatter/cage/internal/guestenv"
-	"github.com/appmatter/cage/internal/host"
 	"github.com/appmatter/cage/internal/hooks"
+	"github.com/appmatter/cage/internal/host"
 	"github.com/appmatter/cage/internal/network"
 	"github.com/appmatter/cage/internal/pluginhost"
+	"github.com/appmatter/cage/internal/secrets"
 	"github.com/appmatter/cage/internal/termlog"
 	runtimeplugin "github.com/appmatter/cage/pkg/plugin/v1/runtime"
 )
@@ -402,6 +403,7 @@ func startHostProxy(projectRoot, vmID string, r config.Resolved, allowedSources 
 		denyMsg = r.Network.Plugins.Egress.DenyHTTPMessage()
 	}
 	var httpProxyYAML []byte
+	var httpProxyResolved []byte
 	if r.Network.Plugins.HTTPProxy != nil && len(r.Network.Plugins.HTTPProxy.Endpoints) > 0 {
 		httpProxyYAML, err = yaml.Marshal(r.Network.Plugins.HTTPProxy)
 		if err != nil {
@@ -410,17 +412,31 @@ func startHostProxy(projectRoot, vmID string, r config.Resolved, allowedSources 
 		if _, _, err := pluginhost.ResolveCommand(projectRoot, "network", "http-proxy"); err != nil {
 			return network.ProxyState{}, fmt.Errorf("network/http-proxy: %w (install with: cage plugin install -l ./plugins/network/http-proxy)", err)
 		}
+		// Resolve secrets in this foreground process (1Password app integration needs a
+		// user session). Detached proxy-serve only gets already-substituted config.
+		httpProxyResolved = httpProxyYAML
+		if secrets.ContainsTemplate(string(httpProxyYAML)) {
+			vals, err := secrets.Resolve(projectRoot, r.Secrets.Plugins)
+			if err != nil {
+				return network.ProxyState{}, err
+			}
+			httpProxyResolved, err = secrets.ApplyBytes(httpProxyYAML, vals)
+			if err != nil {
+				return network.ProxyState{}, fmt.Errorf("http-proxy secrets: %w", err)
+			}
+		}
 	}
 	st, err := network.StartDetachedProxy(projectRoot, vmID, bin, network.StartDetachedProxyOpts{
-		EgressYAML:     egressYAML,
-		HTTPProxyYAML:  httpProxyYAML,
-		Logging:        r.Network.LoggingEnabled(),
-		ConfigPath:     r.Path,
-		DenyHTTP:       denyHTTP,
-		DenyMessage:    denyMsg,
-		Softnet:        true,
-		MITM:           r.Network.MITMEnabled(),
-		AllowedSources: allowedSources,
+		EgressYAML:            egressYAML,
+		HTTPProxyYAML:         httpProxyYAML,
+		HTTPProxyResolvedYAML: httpProxyResolved,
+		Logging:               r.Network.LoggingEnabled(),
+		ConfigPath:            r.Path,
+		DenyHTTP:              denyHTTP,
+		DenyMessage:           denyMsg,
+		Softnet:               true,
+		MITM:                  r.Network.MITMEnabled(),
+		AllowedSources:        allowedSources,
 	})
 	if err != nil {
 		return network.ProxyState{}, err

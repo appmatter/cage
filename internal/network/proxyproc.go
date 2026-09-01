@@ -19,8 +19,8 @@ import (
 // ProxyState is written under .cage/run/<id>/proxy.json.
 type ProxyState struct {
 	PID            int      `json:"pid"`
-	Port           int      `json:"port"`       // SOCKS5
-	HTTPPort       int      `json:"http_port"`  // HTTP CONNECT (+ MITM)
+	Port           int      `json:"port"`      // SOCKS5
+	HTTPPort       int      `json:"http_port"` // HTTP CONNECT (+ MITM)
 	BindHost       string   `json:"bind_host,omitempty"`
 	AllowedSources []string `json:"allowed_sources,omitempty"` // guest IPv4s
 }
@@ -93,15 +93,16 @@ func ReadHTTPProxyState(projectRoot, vmID string) (HTTPProxyPorts, error) {
 
 // StartDetachedProxyOpts configures the detached proxy-serve child.
 type StartDetachedProxyOpts struct {
-	EgressYAML     []byte
-	HTTPProxyYAML  []byte // nil/empty → no http-proxy
-	Logging        bool
-	ConfigPath     string
-	DenyHTTP       bool
-	DenyMessage    string
-	Softnet        bool // host-only softnet active; advisory SOFTNET log when Logging
-	MITM           bool // HTTPS break/re-encrypt (default on when proxy enabled)
-	AllowedSources []string // guest IPv4s allowed to dial this proxy
+	EgressYAML            []byte
+	HTTPProxyYAML         []byte // templates → .cage/run/<id>/http-proxy.yaml (no secret values)
+	HTTPProxyResolvedYAML []byte // optional substituted yaml for Configure only (temp file)
+	Logging               bool
+	ConfigPath            string
+	DenyHTTP              bool
+	DenyMessage           string
+	Softnet               bool     // host-only softnet active; advisory SOFTNET log when Logging
+	MITM                  bool     // HTTPS break/re-encrypt (default on when proxy enabled)
+	AllowedSources        []string // guest IPv4s allowed to dial this proxy
 }
 
 // StartDetachedProxy launches `cage proxy-serve` in the background and waits for proxy.json.
@@ -120,10 +121,32 @@ func StartDetachedProxy(projectRoot, vmID, cageBin string, opts StartDetachedPro
 		return ProxyState{}, err
 	}
 	hpPath := ""
+	hpResolvedPath := ""
 	if len(opts.HTTPProxyYAML) > 0 && string(opts.HTTPProxyYAML) != "{}\n" && string(opts.HTTPProxyYAML) != "null\n" {
 		hpPath = httpProxyConfigPath(projectRoot, vmID)
 		if err := os.WriteFile(hpPath, opts.HTTPProxyYAML, 0o644); err != nil {
 			return ProxyState{}, err
+		}
+		if len(opts.HTTPProxyResolvedYAML) > 0 {
+			f, err := os.CreateTemp("", "cage-http-proxy-resolved-*.yaml")
+			if err != nil {
+				return ProxyState{}, err
+			}
+			hpResolvedPath = f.Name()
+			if err := f.Chmod(0o600); err != nil {
+				f.Close()
+				_ = os.Remove(hpResolvedPath)
+				return ProxyState{}, err
+			}
+			if _, err := f.Write(opts.HTTPProxyResolvedYAML); err != nil {
+				f.Close()
+				_ = os.Remove(hpResolvedPath)
+				return ProxyState{}, err
+			}
+			if err := f.Close(); err != nil {
+				_ = os.Remove(hpResolvedPath)
+				return ProxyState{}, err
+			}
 		}
 	} else {
 		_ = os.Remove(httpProxyConfigPath(projectRoot, vmID))
@@ -141,6 +164,9 @@ func StartDetachedProxy(projectRoot, vmID, cageBin string, opts StartDetachedPro
 	}
 	if hpPath != "" {
 		args = append(args, "--http-proxy", hpPath)
+	}
+	if hpResolvedPath != "" {
+		args = append(args, "--http-proxy-resolved", hpResolvedPath)
 	}
 	if opts.ConfigPath != "" {
 		args = append(args, "--config", opts.ConfigPath)
@@ -168,8 +194,12 @@ func StartDetachedProxy(projectRoot, vmID, cageBin string, opts StartDetachedPro
 	cmd := exec.Command(cageBin, args...)
 	cmd.Stdout = os.Stderr
 	cmd.Stderr = os.Stderr
+	cmd.Stdin = os.Stdin
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := cmd.Start(); err != nil {
+		if hpResolvedPath != "" {
+			_ = os.Remove(hpResolvedPath)
+		}
 		return ProxyState{}, fmt.Errorf("proxy-serve start: %w", err)
 	}
 

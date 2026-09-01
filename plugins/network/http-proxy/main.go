@@ -155,7 +155,7 @@ var (
 
 func resolveTemplate(s string) (string, error) {
 	if secretsRe.MatchString(s) {
-		return "", fmt.Errorf("secrets plugins not implemented; use {{ env.VAR }} or a literal")
+		return "", fmt.Errorf("unresolved {{ secrets.* }} (core should substitute before Configure)")
 	}
 	var err error
 	out := envRe.ReplaceAllStringFunc(s, func(m string) string {
