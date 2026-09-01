@@ -1,8 +1,10 @@
 version: "3"
 
+dotenv: [".env"]
+
 vars:
-  CONFIG: .cage/cage.dogfood.yaml
-  VM_ID: cage-vm
+  CONFIG: '{{.CONFIG | default ".cage/cage.yaml"}}'
+  VM_ID: '{{.VM_ID | default "cage-vm"}}'
 
 tasks:
   default:

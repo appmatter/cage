@@ -23,7 +23,8 @@ Dev loop (needs [Task](https://taskfile.dev)):
 ```bash
 task              # delete VM, reinstall CLI+tart+egress, create, start
 task recreate     # delete/create/start only
-task start        # CONFIG=.cage/cage.docs-agent.yaml task start
+task start        # or: CONFIG=.cage/cage.docs-agent.yaml task start
+# optional: cp .env.example .env  # CONFIG / VM_ID overrides for task
 task test:integration # live Tart/runtime ITs (darwin; skips if tart/image missing)
 task test:network     # headless proxy+softnet smoke (skips if tart/softnet/privileges missing)
 ```

@@ -1,4 +1,4 @@
-# Dogfood profile: readable .cage (ro) for developing Cage itself.
+# Dogfood profile: readable .cage (ro) for developing Cage itself + 1Password secrets.
 extends: cage.yaml
 
 fs:
@@ -13,3 +13,27 @@ fs:
       active: false
     - path: .cage/cage.*.yaml
       active: false
+
+# Seat name == install name → omit plugin:. Edit op:// refs to match your vaults.
+secrets:
+  plugins:
+    onepassword:
+      vars:
+        OPENAI_API_KEY: op://appmatter/openai/api-key
+        ANTHROPIC_API_KEY: op://appmatter/anthropic/api-key
+
+network:
+  plugins:
+    # Full endpoint replace on merge — keep listen/url from base.
+    http-proxy:
+      openai:
+        listen: 18080
+        url: https://api.openai.com/v1
+        headers:
+          Authorization: "Bearer {{ secrets.onepassword.OPENAI_API_KEY }}"
+      anthropic:
+        listen: 18081
+        url: https://api.anthropic.com
+        headers:
+          x-api-key: "{{ secrets.onepassword.ANTHROPIC_API_KEY }}"
+          anthropic-version: "2023-06-01"
