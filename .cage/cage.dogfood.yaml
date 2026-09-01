@@ -8,8 +8,8 @@ fs:
       permission: ro
   deny:
     - path: .cage
-      remove: true
+      active: false
     - path: .cage/cage.yaml
-      remove: true
+      active: false
     - path: .cage/cage.*.yaml
-      remove: true
+      active: false

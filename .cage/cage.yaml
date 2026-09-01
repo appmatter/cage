@@ -38,7 +38,7 @@ fs:
     .git:
       host: .git
       permission: ro
-    agent-relay: .tmp/agent-relay
+    .tmp: .tmp
   copy: {}
   deny:
     # Host secrets — seed via fs.copy (e.g. .env.example → .env), never mount the real file.
