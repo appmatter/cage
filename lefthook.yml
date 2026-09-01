@@ -11,3 +11,6 @@ pre-commit:
       stage_fixed: true
     gitleaks:
       run: gitleaks git --pre-commit --staged --redact --no-banner
+    example-config:
+      glob: "{.cage/cage.yaml,internal/config/**}"
+      run: go test -tags example ./internal/config/ -run TestLoadProjectExample -count=1

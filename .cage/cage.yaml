@@ -10,7 +10,7 @@ runtime:
       # graphics: true
       on-create:
         - .cage/scripts/on-create.sh
-      # bake: [.cage/scripts/bake-example.sh]  # optional operator extras; pi-agent attaches via before_bake
+      bake: [.cage/scripts/bake-example.sh] # optional operator extras; pi-agent attaches via before_bake
     pi-agent:
       version: "latest"
       # agent_dir: .cage/plugins/runtime/custom  # optional; default .cage/plugins/runtime/pi-agent
@@ -38,6 +38,7 @@ fs:
     .git:
       host: .git
       permission: ro
+    agent-relay: .tmp/agent-relay
   copy: {}
   deny:
     # Host secrets — seed via fs.copy (e.g. .env.example → .env), never mount the real file.
@@ -45,6 +46,7 @@ fs:
     - .ssh
     - credentials
     # Keep cage config off the agent FS (masked under the root mount at start).
+    # Dogfood: cage.dogfood.yaml removes these and mounts .cage ro.
     - .cage
     - .cage/cage.yaml
     - .cage/cage.*.yaml
@@ -89,6 +91,14 @@ network:
         - host: "*.example.com" # google.com + www.google.com + …
           method: GET
         - host: registry.npmjs.org
+          port: 443
+        - host: "*.golang.org" # proxy.golang.org, sum.golang.org
+          port: 443
+        - host: go.dev
+          port: 443
+        - host: "*.go.dev"
+          port: 443
+        - host: "*.googleapis.com" # module zip CDN (storage.googleapis.com)
           port: 443
         - host: api.github.com
           port: 443
