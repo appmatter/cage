@@ -1,0 +1,7 @@
+tmp/
+.agent-web/
+agent-relay-web
+core
+core.*
+*.bak
+config.json
