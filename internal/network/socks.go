@@ -403,8 +403,9 @@ fi
 
 cat > /var/lib/cage/shell <<'EOF'
 #!/bin/sh
-# Entry for cage vm exec / agents — always loads proxy env.
+# Entry for cage vm exec / agents — always loads proxy + runtime env.
 [ -r /var/lib/cage/proxy.env ] && . /var/lib/cage/proxy.env
+[ -r /var/lib/cage/runtime.env ] && . /var/lib/cage/runtime.env
 exec bash -l "$@"
 EOF
 chmod 0755 /var/lib/cage/shell

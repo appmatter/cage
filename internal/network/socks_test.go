@@ -146,6 +146,7 @@ func TestGuestProxyEnvScript(t *testing.T) {
 	if !strings.Contains(inst, "/etc/profile.d/cage-proxy.sh") ||
 		!strings.Contains(inst, "/etc/environment") ||
 		!strings.Contains(inst, "/var/lib/cage/shell") ||
+		!strings.Contains(inst, "/var/lib/cage/runtime.env") ||
 		!strings.Contains(inst, "http://") {
 		t.Fatalf("install=%q", inst)
 	}

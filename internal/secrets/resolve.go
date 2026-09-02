@@ -61,6 +61,36 @@ func ApplyBytes(b []byte, values Values) ([]byte, error) {
 	return []byte(out), nil
 }
 
+// MapHasTemplate reports whether any map value contains {{ secrets.* }}.
+func MapHasTemplate(m map[string]string) bool {
+	for _, v := range m {
+		if ContainsTemplate(v) {
+			return true
+		}
+	}
+	return false
+}
+
+// ApplyMap returns a copy of m with {{ secrets.* }} substituted in values.
+func ApplyMap(m map[string]string, values Values) (map[string]string, error) {
+	if len(m) == 0 {
+		return nil, nil
+	}
+	out := make(map[string]string, len(m))
+	for k, v := range m {
+		if !ContainsTemplate(v) {
+			out[k] = v
+			continue
+		}
+		resolved, err := Apply(v, values)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", k, err)
+		}
+		out[k] = resolved
+	}
+	return out, nil
+}
+
 // Resolve loads secrets plugins and resolves all seats in dependency order.
 // projectRoot is used to find installed plugin binaries.
 func Resolve(projectRoot string, seats map[string]config.SecretStore) (Values, error) {

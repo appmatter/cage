@@ -63,13 +63,8 @@ fi
 ETCEOF
 } >/etc/environment
 rm -f "$tmp"
-
-if [ -f /var/lib/cage/shell ] && ! grep -qF '/var/lib/cage/runtime.env' /var/lib/cage/shell 2>/dev/null; then
-  printf '\n[ -r /var/lib/cage/runtime.env ] && . /var/lib/cage/runtime.env\n' >> /var/lib/cage/shell
-fi
 `, exports.String(), keyAlt, etcLines.String())
 }
-
 func shellSingleQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }

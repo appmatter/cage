@@ -116,7 +116,7 @@ tasks:
       - cage bake delete {{.CLI_ARGS}}
 
   test:integration:
-    desc: Live ITs (Tart/runtime + host http-proxy); skips when tools/image missing
+    desc: Live ITs (Tart/runtime + host http-proxy + runtime.env secrets); skips when tools/image missing
     cmds:
       - go test -tags integration ./plugins/runtime/... ./internal/network/ -count=1 -v
 

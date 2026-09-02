@@ -110,6 +110,7 @@ task test:integration
 
 - `TestIntegrationMountAndCopy` — mount + copy
 - `TestIntegrationSoftnetHostOnly` — softnet host-only (skips if softnet/privileges missing)
+- `TestIntegrationRuntimeEnvSecrets` — resolve `{{ secrets.* }}` → guest `runtime.env`
 - `TestIntegrationBeforeBakeOnTart` — pi-agent BeforeBake on Tart
 
 Full proxy path smoke (rebuild CLI+plugins, headless VM, timeouts on guest exec via `cage vm exec`):

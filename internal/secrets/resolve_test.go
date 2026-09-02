@@ -19,6 +19,24 @@ func TestApply(t *testing.T) {
 	}
 }
 
+func TestApplyMap(t *testing.T) {
+	vals := Values{"onepassword": {"K": "secret"}}
+	in := map[string]string{
+		"A": "{{ secrets.onepassword.K }}",
+		"B": "literal",
+	}
+	got, err := ApplyMap(in, vals)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got["A"] != "secret" || got["B"] != "literal" {
+		t.Fatalf("%#v", got)
+	}
+	if !MapHasTemplate(in) || MapHasTemplate(map[string]string{"B": "literal"}) {
+		t.Fatal("MapHasTemplate")
+	}
+}
+
 func TestOrderSeatsDeps(t *testing.T) {
 	seats := map[string]config.SecretStore{
 		"b": {Uses: []string{"a"}, Vars: map[string]string{"Y": "y"}},
