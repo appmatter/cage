@@ -54,9 +54,9 @@ export CAGE_HTTP_OPENAI_URL=http://$GW:18080
 | --- | --- |
 | literal | Passed through |
 | `{{ env.NAME }}` | Host environment at Configure time |
-| `{{ secrets.* }}` | Error — secrets plugins not implemented yet |
+| `{{ secrets.<seat>.<var> }}` | Resolved by Cage before Configure (install secrets plugin; values not written to http-proxy.yaml) |
 
-Set keys on the **host** before `cage vm start` (proxy-serve inherits them).
+Set `env.*` keys on the **host** before `cage vm start`, or configure `secrets.plugins` + `cage plugin install -l ./plugins/secrets/onepassword`.
 
 ## State / reload
 

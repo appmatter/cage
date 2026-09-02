@@ -1,8 +1,10 @@
 version: "3"
 
+dotenv: [".env"]
+
 vars:
-  CONFIG: .cage/cage.dogfood.yaml
-  VM_ID: cage-vm
+  CONFIG: '{{.CONFIG | default ".cage/cage.yaml"}}'
+  VM_ID: '{{.VM_ID | default "cage-vm"}}'
 
 tasks:
   default:
@@ -16,12 +18,13 @@ tasks:
       - go install ./cmd/cage
 
   plugin:
-    desc: Build and install tart + pi-agent + egress + http-proxy plugins into .cage/.cache/plugins
+    desc: Build and install tart + pi-agent + egress + http-proxy + onepassword plugins into .cage/.cache/plugins
     cmds:
       - cage plugin install -l ./plugins/runtime/tart
       - cage plugin install -l ./plugins/runtime/pi-agent
       - cage plugin install -l ./plugins/network/egress
       - cage plugin install -l ./plugins/network/http-proxy
+      - cage plugin install -l ./plugins/secrets/onepassword
 
   reinstall:
     desc: Install CLI + runtime/network plugins
@@ -112,15 +115,20 @@ tasks:
     cmds:
       - cage bake delete {{.CLI_ARGS}}
 
+  test:integration:
+    desc: Live ITs (Tart/runtime + host http-proxy + runtime.env secrets); skips when tools/image missing
+    cmds:
+      - go test -tags integration ./plugins/runtime/... ./internal/network/ -count=1 -v
+
   test:network:
     desc: Headless proxy+softnet smoke (scripts/test-network.sh); skips if tart/softnet missing
     cmds:
       - bash scripts/test-network.sh
 
   test:network:http-proxy:
-    desc: Host http-proxy + egress + mock authed API (no VM)
+    desc: Host http-proxy + egress + mock authed API (no VM; -tags integration)
     cmds:
-      - go test ./internal/network/ -run TestHTTPProxyHostAuthIntegration -count=1 -v
+      - go test -tags integration ./internal/network/ -run TestHTTPProxyHostAuthIntegration -count=1 -v
 
   test:network:ipv6:
     desc: Softnet host-only must block IPv6 direct egress (scripts/test-network-ipv6.sh)

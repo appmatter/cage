@@ -140,10 +140,24 @@ func TestLoadSecretsPluginsFixtures(t *testing.T) {
 		t.Fatalf("account merge: %#v", merged.Secrets.Plugins["onepassword"])
 	}
 	org := merged.Secrets.Plugins["organization-op"]
-	if org.Plugin != "onepassword" || org.Vars["ANTHROPIC_API_KEY"] == "" {
+	if org.Plugin != "onepassword" || org.Account != "company.1password.com" || org.Vars["ANTHROPIC_API_KEY"] == "" {
 		t.Fatalf("organization-op=%#v", org)
+	}
+	if org.PluginID("organization-op") != "onepassword" {
+		t.Fatalf("plugin id=%q", org.PluginID("organization-op"))
 	}
 	if merged.Network.Plugins.HTTPProxy.Endpoints["anthropic"].URL == "" {
 		t.Fatal("anthropic proxy missing")
+	}
+
+	r, err := LoadResolved(dir, filepath.Join(dir, "cage.multi-account.yaml"), runtime.GOOS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Secrets.Plugins["onepassword"].Account != "my.1password.com" {
+		t.Fatalf("resolved account: %#v", r.Secrets.Plugins["onepassword"])
+	}
+	if got := r.Secrets.Plugins["organization-op"]; got.Plugin != "onepassword" || got.Account != "company.1password.com" {
+		t.Fatalf("resolved org: %#v", got)
 	}
 }

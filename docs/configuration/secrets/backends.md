@@ -19,7 +19,7 @@ OS stores are separate plugins — APIs differ; wrong backend for the host fails
 
 ## Rollout
 
-- **v1:** `onepassword`
+- **v1:** `onepassword` (`plugins/secrets/onepassword`)
 - **Later:** `keychain`, `credential_manager`, `secret_service`, `file`, `aws_sm`
 
 ## Shape
@@ -32,6 +32,7 @@ secrets:
       package: git:… # optional source override
       uses: [other-seat] # optional explicit deps
       account: … # onepassword: op --account
+      app: true # onepassword: desktop CLI integration (omit = true)
       # plugin-specific fields (region, path, …)
       vars:
         VAR_NAME: <ref> # lookup id; may also embed {{ secrets.<seat>.<var> }}
@@ -48,6 +49,7 @@ secrets:
   plugins:
     onepassword:
       account: my.1password.com
+      app: true
       vars:
         OPENAI_API_KEY: op://Engineering/openai/api-key
     organization-op:

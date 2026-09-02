@@ -11,10 +11,11 @@ import (
 	"github.com/appmatter/cage/internal/bake"
 	"github.com/appmatter/cage/internal/config"
 	"github.com/appmatter/cage/internal/guestenv"
-	"github.com/appmatter/cage/internal/host"
 	"github.com/appmatter/cage/internal/hooks"
+	"github.com/appmatter/cage/internal/host"
 	"github.com/appmatter/cage/internal/network"
 	"github.com/appmatter/cage/internal/pluginhost"
+	"github.com/appmatter/cage/internal/secrets"
 	"github.com/appmatter/cage/internal/termlog"
 	runtimeplugin "github.com/appmatter/cage/pkg/plugin/v1/runtime"
 )
@@ -87,6 +88,16 @@ func newVMStartCmd() *cobra.Command {
 			termlog.CLI("start %s (plugin=%s mounts=%d copies=%d proxy=%v)",
 				spec.ID, backendName, len(spec.Mounts), len(spec.Copies), proxyOn)
 			hooks.WarnMissingEgress(".", r, termlog.CLI)
+			secretVals, err := resolveSecretsForStart(".", r, spec.Env)
+			if err != nil {
+				return err
+			}
+			if secretVals != nil {
+				spec.Env, err = secrets.ApplyMap(spec.Env, secretVals)
+				if err != nil {
+					return fmt.Errorf("runtime.env secrets: %w", err)
+				}
+			}
 			var proxyState network.ProxyState
 			err = withRuntime(backendName, func(b runtimeplugin.Backend) error {
 				if err := applyBake(&spec, r, b); err != nil {
@@ -104,7 +115,7 @@ func newVMStartCmd() *cobra.Command {
 					if err != nil {
 						return err
 					}
-					st, err := startHostProxy(".", spec.ID, r, guestIPs)
+					st, err := startHostProxy(".", spec.ID, r, guestIPs, secretVals)
 					if err != nil {
 						return err
 					}
@@ -378,7 +389,7 @@ func applyBake(spec *runtimeplugin.Spec, r config.Resolved, b runtimeplugin.Back
 	return nil
 }
 
-func startHostProxy(projectRoot, vmID string, r config.Resolved, allowedSources []string) (network.ProxyState, error) {
+func startHostProxy(projectRoot, vmID string, r config.Resolved, allowedSources []string, secretVals secrets.Values) (network.ProxyState, error) {
 	bin, err := os.Executable()
 	if err != nil {
 		return network.ProxyState{}, err
@@ -402,6 +413,7 @@ func startHostProxy(projectRoot, vmID string, r config.Resolved, allowedSources 
 		denyMsg = r.Network.Plugins.Egress.DenyHTTPMessage()
 	}
 	var httpProxyYAML []byte
+	var httpProxyResolved []byte
 	if r.Network.Plugins.HTTPProxy != nil && len(r.Network.Plugins.HTTPProxy.Endpoints) > 0 {
 		httpProxyYAML, err = yaml.Marshal(r.Network.Plugins.HTTPProxy)
 		if err != nil {
@@ -410,17 +422,32 @@ func startHostProxy(projectRoot, vmID string, r config.Resolved, allowedSources 
 		if _, _, err := pluginhost.ResolveCommand(projectRoot, "network", "http-proxy"); err != nil {
 			return network.ProxyState{}, fmt.Errorf("network/http-proxy: %w (install with: cage plugin install -l ./plugins/network/http-proxy)", err)
 		}
+		httpProxyResolved = httpProxyYAML
+		if secrets.ContainsTemplate(string(httpProxyYAML)) {
+			vals := secretVals
+			if vals == nil {
+				vals, err = secrets.Resolve(projectRoot, r.Secrets.Plugins)
+				if err != nil {
+					return network.ProxyState{}, err
+				}
+			}
+			httpProxyResolved, err = secrets.ApplyBytes(httpProxyYAML, vals)
+			if err != nil {
+				return network.ProxyState{}, fmt.Errorf("http-proxy secrets: %w", err)
+			}
+		}
 	}
 	st, err := network.StartDetachedProxy(projectRoot, vmID, bin, network.StartDetachedProxyOpts{
-		EgressYAML:     egressYAML,
-		HTTPProxyYAML:  httpProxyYAML,
-		Logging:        r.Network.LoggingEnabled(),
-		ConfigPath:     r.Path,
-		DenyHTTP:       denyHTTP,
-		DenyMessage:    denyMsg,
-		Softnet:        true,
-		MITM:           r.Network.MITMEnabled(),
-		AllowedSources: allowedSources,
+		EgressYAML:            egressYAML,
+		HTTPProxyYAML:         httpProxyYAML,
+		HTTPProxyResolvedYAML: httpProxyResolved,
+		Logging:               r.Network.LoggingEnabled(),
+		ConfigPath:            r.Path,
+		DenyHTTP:              denyHTTP,
+		DenyMessage:           denyMsg,
+		Softnet:               true,
+		MITM:                  r.Network.MITMEnabled(),
+		AllowedSources:        allowedSources,
 	})
 	if err != nil {
 		return network.ProxyState{}, err
@@ -436,6 +463,23 @@ func startHostProxy(projectRoot, vmID string, r config.Resolved, allowedSources 
 		termlog.CLI("proxy log %s (cage vm logs -f)", network.ProxyLogPath(projectRoot, vmID))
 	}
 	return st, nil
+}
+
+// resolveSecretsForStart resolves secret seats once when http-proxy or runtime.env
+// templates need them (foreground — 1Password app integration needs a user session).
+func resolveSecretsForStart(projectRoot string, r config.Resolved, env map[string]string) (secrets.Values, error) {
+	need := secrets.MapHasTemplate(env)
+	if !need && r.Network.Plugins.HTTPProxy != nil && len(r.Network.Plugins.HTTPProxy.Endpoints) > 0 {
+		raw, err := yaml.Marshal(r.Network.Plugins.HTTPProxy)
+		if err != nil {
+			return nil, err
+		}
+		need = secrets.ContainsTemplate(string(raw))
+	}
+	if !need {
+		return nil, nil
+	}
+	return secrets.Resolve(projectRoot, r.Secrets.Plugins)
 }
 
 func injectGuestProxyEnv(b runtimeplugin.Backend, vmID string, st network.ProxyState, mitm bool) error {

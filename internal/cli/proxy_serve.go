@@ -12,24 +12,26 @@ import (
 	"github.com/appmatter/cage/internal/config"
 	"github.com/appmatter/cage/internal/network"
 	"github.com/appmatter/cage/internal/pluginhost"
+	"github.com/appmatter/cage/internal/secrets"
 	"github.com/appmatter/cage/internal/termlog"
 	netplugin "github.com/appmatter/cage/pkg/plugin/v1/network"
 )
 
 func newProxyServeCmd() *cobra.Command {
 	var (
-		projectRoot   string
-		id            string
-		egressPath    string
-		httpProxyPath string
-		readyPath     string
-		configPath    string
-		logTraffic    bool
-		denyHTTP      bool
-		denyMessage   string
-		softnet       bool
-		mitm          bool
-		allowIPs      []string
+		projectRoot       string
+		id                string
+		egressPath        string
+		httpProxyPath     string
+		httpProxyResolved string
+		readyPath         string
+		configPath        string
+		logTraffic        bool
+		denyHTTP          bool
+		denyMessage       string
+		softnet           bool
+		mitm              bool
+		allowIPs          []string
 	)
 	cmd := &cobra.Command{
 		Use:    "proxy-serve",
@@ -126,7 +128,16 @@ func newProxyServeCmd() *cobra.Command {
 					if err := yaml.Unmarshal(raw, &pp); err != nil {
 						return fmt.Errorf("http-proxy config: %w", err)
 					}
-					term, closer, err := loadHTTPProxyTerminate(projectRoot, raw)
+					cfgRaw := raw
+					if httpProxyResolved != "" {
+						resolved, err := os.ReadFile(httpProxyResolved)
+						if err != nil {
+							return fmt.Errorf("http-proxy-resolved: %w", err)
+						}
+						cfgRaw = resolved
+						_ = os.Remove(httpProxyResolved) // best-effort; contains secret values
+					}
+					term, closer, err := loadHTTPProxyTerminate(projectRoot, configPath, cfgRaw)
 					if err != nil {
 						return err
 					}
@@ -159,6 +170,7 @@ func newProxyServeCmd() *cobra.Command {
 	cmd.Flags().StringVar(&id, "id", "", "VM id")
 	cmd.Flags().StringVar(&egressPath, "egress", "", "path to egress yaml (may be empty object)")
 	cmd.Flags().StringVar(&httpProxyPath, "http-proxy", "", "path to http-proxy yaml")
+	cmd.Flags().StringVar(&httpProxyResolved, "http-proxy-resolved", "", "optional pre-resolved http-proxy yaml (deleted after read)")
 	cmd.Flags().StringVar(&readyPath, "ready", "", "path written when listening")
 	cmd.Flags().StringVar(&configPath, "config", "", "active cage yaml (hot-reload egress)")
 	cmd.Flags().BoolVar(&logTraffic, "log", false, "log CONNECT events to proxy.log + stderr")
@@ -186,7 +198,27 @@ func loadEgressFilter(projectRoot string, raw []byte) (netplugin.Filter, func(),
 	return client.Filter, client.Close, nil
 }
 
-func loadHTTPProxyTerminate(projectRoot string, raw []byte) (netplugin.Terminate, func(), error) {
+func loadHTTPProxyTerminate(projectRoot, configPath string, raw []byte) (netplugin.Terminate, func(), error) {
+	cfgRaw := raw
+	// Prefer caller-supplied already-resolved yaml. Fall back to resolving here only when
+	// templates remain (e.g. tests / manual proxy-serve without --http-proxy-resolved).
+	if secrets.ContainsTemplate(string(raw)) {
+		if configPath == "" {
+			return nil, nil, fmt.Errorf("http-proxy: {{ secrets.* }} requires --config or --http-proxy-resolved")
+		}
+		r, err := config.LoadResolved(projectRoot, configPath, runtime.GOOS)
+		if err != nil {
+			return nil, nil, err
+		}
+		vals, err := secrets.Resolve(projectRoot, r.Secrets.Plugins)
+		if err != nil {
+			return nil, nil, err
+		}
+		cfgRaw, err = secrets.ApplyBytes(raw, vals)
+		if err != nil {
+			return nil, nil, fmt.Errorf("http-proxy secrets: %w", err)
+		}
+	}
 	cmdPath, _, err := pluginhost.ResolveCommand(projectRoot, "network", "http-proxy")
 	if err != nil {
 		return nil, nil, fmt.Errorf("network/http-proxy: %w (install with: cage plugin install -l ./plugins/network/http-proxy)", err)
@@ -195,7 +227,7 @@ func loadHTTPProxyTerminate(projectRoot string, raw []byte) (netplugin.Terminate
 	if err != nil {
 		return nil, nil, err
 	}
-	if err := client.Terminate.Configure(raw); err != nil {
+	if err := client.Terminate.Configure(cfgRaw); err != nil {
 		client.Close()
 		return nil, nil, err
 	}

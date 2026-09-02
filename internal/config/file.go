@@ -179,6 +179,7 @@ type SecretStore struct {
 	Package string            `yaml:"package,omitempty"` // optional source override
 	Uses    []string          `yaml:"uses,omitempty"`
 	Account string            `yaml:"account,omitempty"` // onepassword: op --account
+	App     *bool             `yaml:"app,omitempty"`     // onepassword: desktop CLI integration (omit/true)
 	Region  string            `yaml:"region,omitempty"`  // aws_sm
 	Vars    map[string]string `yaml:"vars"`
 }
@@ -422,6 +423,7 @@ type Resolved struct {
 	Path      string
 	Runtime   Runtime
 	Network   Network
+	Secrets   Secrets
 	Layout    Layout
 	Mounts    []ResolvedPath
 	Copies    []ResolvedPath
@@ -483,6 +485,7 @@ func LoadResolved(projectRoot, path, goos string) (Resolved, error) {
 		Path:    abs,
 		Runtime: merged.Runtime,
 		Network: merged.Network,
+		Secrets: Secrets{Plugins: mergeSecretPlugins(merged.Secrets.Plugins, nil)},
 		Layout:  merged.FS.Layout,
 		Deny:    uniqueStrings(denyPaths(merged.FS.Deny)),
 	}
@@ -702,6 +705,10 @@ func mergeSecretPlugins(base, over map[string]SecretStore) map[string]SecretStor
 		if store.Account != "" {
 			cur.Account = store.Account
 		}
+		if store.App != nil {
+			b := *store.App
+			cur.App = &b
+		}
 		if store.Region != "" {
 			cur.Region = store.Region
 		}
@@ -722,6 +729,10 @@ func cloneSecretStore(s SecretStore) SecretStore {
 	out := s
 	if s.Uses != nil {
 		out.Uses = append([]string{}, s.Uses...)
+	}
+	if s.App != nil {
+		b := *s.App
+		out.App = &b
 	}
 	if s.Vars != nil {
 		out.Vars = map[string]string{}

@@ -450,6 +450,7 @@ secrets:
   plugins:
     personal-op:
       plugin: onepassword
+      account: my.1password.com
       vars:
         OPENAI_API_KEY: op://x
     dev-sm:
@@ -490,8 +491,11 @@ network:
 		t.Fatalf("allow=%#v", sc.Allow)
 	}
 	op := f.Secrets.Plugins["personal-op"]
-	if op.Plugin != "onepassword" || op.Vars["OPENAI_API_KEY"] == "" {
+	if op.Plugin != "onepassword" || op.Account != "my.1password.com" || op.Vars["OPENAI_API_KEY"] == "" {
 		t.Fatalf("secrets=%#v", f.Secrets.Plugins)
+	}
+	if op.PluginID("personal-op") != "onepassword" {
+		t.Fatalf("plugin id=%q", op.PluginID("personal-op"))
 	}
 	if f.Secrets.Plugins["dev-sm"].Region != "eu-west-2" {
 		t.Fatalf("aws_sm=%#v", f.Secrets.Plugins["dev-sm"])

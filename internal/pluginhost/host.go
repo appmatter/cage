@@ -13,6 +13,7 @@ import (
 
 	netplugin "github.com/appmatter/cage/pkg/plugin/v1/network"
 	runtimeplugin "github.com/appmatter/cage/pkg/plugin/v1/runtime"
+	secretsplugin "github.com/appmatter/cage/pkg/plugin/v1/secrets"
 )
 
 // BinaryExt is the installed plugin binary suffix (gitignore: *.cageplugin).
@@ -25,8 +26,8 @@ type Manifest struct {
 	Command     string       `json:"command"`
 	Source      string       `json:"source"`
 	Pin         string       `json:"pin,omitempty"`
-	Stage       string       `json:"stage,omitempty"` // backend | harness | …
-	Hooks       []string     `json:"hooks,omitempty"` // build-time hook attachments
+	Stage       string       `json:"stage,omitempty"`    // backend | harness | …
+	Hooks       []string     `json:"hooks,omitempty"`    // build-time hook attachments
 	Commands    []string     `json:"commands,omitempty"` // CLI verbs (e.g. init)
 	EgressHints []EgressHint `json:"egress_hints,omitempty"`
 }
@@ -217,6 +218,19 @@ func (c *NetworkTerminateClient) Close() {
 	}
 }
 
+// SecretsClient is a live secrets store plugin connection.
+type SecretsClient struct {
+	client *plugin.Client
+	Store  secretsplugin.Store
+}
+
+// Close kills the plugin process.
+func (c *SecretsClient) Close() {
+	if c != nil && c.client != nil {
+		c.client.Kill()
+	}
+}
+
 // DispenseRuntime launches a runtime plugin binary and returns Backend.
 func DispenseRuntime(cmdPath string) (*Client, error) {
 	cmd := exec.Command(cmdPath)
@@ -344,4 +358,37 @@ func DispenseNetworkTerminate(cmdPath string) (*NetworkTerminateClient, error) {
 		return nil, fmt.Errorf("unexpected plugin type %T", raw)
 	}
 	return &NetworkTerminateClient{client: client, Terminate: t}, nil
+}
+
+// DispenseSecrets launches a secrets store plugin binary.
+func DispenseSecrets(cmdPath string) (*SecretsClient, error) {
+	cmd := exec.Command(cmdPath)
+	cmd.Stdin = os.Stdin // so op / desktop-app unlock prompts reach the host terminal
+	client := plugin.NewClient(&plugin.ClientConfig{
+		HandshakeConfig: secretsplugin.Handshake,
+		Plugins: map[string]plugin.Plugin{
+			secretsplugin.PluginName: &secretsplugin.RPCPlugin{},
+		},
+		Cmd:              cmd,
+		AllowedProtocols: []plugin.Protocol{plugin.ProtocolNetRPC},
+		SyncStderr:       os.Stderr,
+		Logger:           hclog.New(&hclog.LoggerOptions{Name: "plugin", Output: io.Discard, Level: hclog.Error}),
+	})
+
+	rpcClient, err := client.Client()
+	if err != nil {
+		client.Kill()
+		return nil, err
+	}
+	raw, err := rpcClient.Dispense(secretsplugin.PluginName)
+	if err != nil {
+		client.Kill()
+		return nil, err
+	}
+	s, ok := raw.(secretsplugin.Store)
+	if !ok {
+		client.Kill()
+		return nil, fmt.Errorf("unexpected plugin type %T", raw)
+	}
+	return &SecretsClient{client: client, Store: s}, nil
 }

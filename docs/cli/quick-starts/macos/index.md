@@ -101,10 +101,17 @@ Default VM name is `cage-vm` (override with `--id` or `CAGE_VM_ID`).
 
 ## Tart / network integration tests
 
-Darwin-only ITs under `./plugins/runtime/tart/` (`//go:build darwin`):
+Live Tart/runtime ITs (`//go:build integration && darwin`) — not in `go test ./...`:
+
+```bash
+task test:integration
+# or: go test -tags integration ./plugins/runtime/...
+```
 
 - `TestIntegrationMountAndCopy` — mount + copy
 - `TestIntegrationSoftnetHostOnly` — softnet host-only (skips if softnet/privileges missing)
+- `TestIntegrationRuntimeEnvSecrets` — resolve `{{ secrets.* }}` → guest `runtime.env`
+- `TestIntegrationBeforeBakeOnTart` — pi-agent BeforeBake on Tart
 
 Full proxy path smoke (rebuild CLI+plugins, headless VM, timeouts on guest exec via `cage vm exec`):
 
