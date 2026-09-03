@@ -25,6 +25,7 @@ tasks:
       - cage plugin install -l ./plugins/network/egress
       - cage plugin install -l ./plugins/network/http-proxy
       - cage plugin install -l ./plugins/secrets/onepassword
+      - cage plugin install -l ./plugins/secrets/openai-oauth
 
   reinstall:
     desc: Install CLI + runtime/network plugins

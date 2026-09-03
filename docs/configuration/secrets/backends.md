@@ -13,13 +13,14 @@ Prefer `{{ secrets.<seat>.<var> }}` on protocol proxies under `network.plugins`.
 | `secret_service`     | Linux    | FreeDesktop Secret Service (e.g. GNOME Keyring, KWallet). |
 | `file`               | any      | Encrypted local file store (path configured on the seat). |
 | `onepassword`        | any      | 1Password refs (`op://…`).                                |
+| `openai-oauth`       | any      | ChatGPT/Codex subscription OAuth (host-side proxy inject). |
 | `aws_sm`             | any      | AWS Secrets Manager (ARN or name + region).               |
 
 OS stores are separate plugins — APIs differ; wrong backend for the host fails clearly.
 
 ## Rollout
 
-- **v1:** `onepassword` (`plugins/secrets/onepassword`)
+- **v1:** `onepassword` (`plugins/secrets/onepassword`), `openai-oauth` (`plugins/secrets/openai-oauth`)
 - **Later:** `keychain`, `credential_manager`, `secret_service`, `file`, `aws_sm`
 
 ## Shape
@@ -33,7 +34,9 @@ secrets:
       uses: [other-seat] # optional explicit deps
       account: … # onepassword: op --account
       app: true # onepassword: desktop CLI integration (omit = true)
-      # plugin-specific fields (region, path, …)
+      path: … # openai-oauth: auth file (omit = ~/.cage/secrets/openai-oauth/auth.json)
+      login: browser # openai-oauth: browser | device_code
+      # plugin-specific fields (region, …)
       vars:
         VAR_NAME: <ref> # lookup id; may also embed {{ secrets.<seat>.<var> }}
 ```

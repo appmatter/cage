@@ -77,6 +77,13 @@
       "command": "cage-secrets-onepassword.cageplugin",
       "source": "plugins/secrets/onepassword",
       "pin": "local"
+    },
+    {
+      "kind": "secrets",
+      "name": "openai-oauth",
+      "command": "cage-secrets-openai-oauth.cageplugin",
+      "source": "plugins/secrets/openai-oauth",
+      "pin": "local"
     }
   ]
 }

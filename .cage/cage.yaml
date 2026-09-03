@@ -35,10 +35,10 @@ fs:
   # Whole repo → /workspace; .git remounted ro (history/gh reads, no commit/push).
   mount:
     ".": .
-    .git:
-      host: .git
-      permission: ro
-    .tmp: .tmp
+    # .git:
+    #   host: .git
+    #   permission: ro
+    # .tmp: .tmp
   copy: {}
   deny:
     # Host secrets — seed via fs.copy (e.g. .env.example → .env), never mount the real file.
@@ -118,6 +118,14 @@ network:
           port: 443
           method: POST
           path: /v1/responses
+        - host: chatgpt.com
+          port: 443
+          method: POST
+          path: /backend-api/codex
+        - host: chatgpt.com
+          port: 443
+          method: POST
+          path: /backend-api/codex/*
         - host: api.anthropic.com
           port: 443
           method: POST
