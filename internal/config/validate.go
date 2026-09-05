@@ -118,6 +118,9 @@ func seatNames(seats []pluginSeat) string {
 }
 
 func validateSecrets(f File) error {
+	if _, err := f.Secrets.RefreshEvery(); err != nil {
+		return err
+	}
 	bySeat := f.Secrets.Plugins
 	if len(bySeat) == 0 {
 		return nil

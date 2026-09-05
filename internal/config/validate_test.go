@@ -1,6 +1,26 @@
 package config
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
+
+func TestSecretsRefreshEvery(t *testing.T) {
+	d, err := (Secrets{}).RefreshEvery()
+	if err != nil || d != 0 {
+		t.Fatalf("omit: %v %v", d, err)
+	}
+	d, err = (Secrets{RefreshInterval: "30s"}).RefreshEvery()
+	if err != nil || d != 30*time.Second {
+		t.Fatalf("30s: %v %v", d, err)
+	}
+	if _, err := (Secrets{RefreshInterval: "nope"}).RefreshEvery(); err == nil {
+		t.Fatal("expected parse error")
+	}
+	if err := ValidateFile(File{Secrets: Secrets{RefreshInterval: "0s"}}); err == nil {
+		t.Fatal("expected validate error for 0s")
+	}
+}
 
 func TestValidateRuntimePrioritiesRequired(t *testing.T) {
 	f := File{

@@ -20,6 +20,25 @@ var (
 // Values is seat → var → resolved secret.
 type Values map[string]map[string]string
 
+// storePluginConfig is the seat fields sent to secrets.Store.Configure (no plugin/vars DAG fields).
+type storePluginConfig struct {
+	Account string `yaml:"account,omitempty"`
+	App     *bool  `yaml:"app,omitempty"`
+	Region  string `yaml:"region,omitempty"`
+	Path    string `yaml:"path,omitempty"`
+	Login   string `yaml:"login,omitempty"`
+}
+
+func pluginConfig(s config.SecretStore) storePluginConfig {
+	return storePluginConfig{
+		Account: s.Account,
+		App:     s.App,
+		Region:  s.Region,
+		Path:    s.Path,
+		Login:   s.Login,
+	}
+}
+
 // ContainsTemplate reports whether s has a {{ secrets.* }} placeholder.
 func ContainsTemplate(s string) bool {
 	return anySecretsRe.MatchString(s)
@@ -126,11 +145,7 @@ func Resolve(projectRoot string, seats map[string]config.SecretStore) (Values, e
 			clients[pluginID] = client
 		}
 
-		cfgYAML, err := yaml.Marshal(struct {
-			Account string `yaml:"account,omitempty"`
-			App     *bool  `yaml:"app,omitempty"`
-			Region  string `yaml:"region,omitempty"`
-		}{Account: store.Account, App: store.App, Region: store.Region})
+		cfgYAML, err := yaml.Marshal(pluginConfig(store))
 		if err != nil {
 			return nil, err
 		}

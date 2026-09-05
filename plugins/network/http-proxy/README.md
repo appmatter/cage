@@ -26,7 +26,7 @@ network:
 | --- | --- |
 | `url` | Upstream base (host used for MITM Host match; path used by legacy listen join) |
 | `headers` | Injected on upstream (override guest) |
-| `listen` | Optional legacy clear-HTTP bind; `0`/omit = ephemeral when used |
+| `listen` | Optional legacy clear-HTTP bind; `0`/omit = ephemeral. Prefer omit — fixed ports clash when multiple cages (or worktrees) run on one host. MITM does not need `listen`. |
 
 Install: `cage plugin install -l ./plugins/network/http-proxy`.
 
@@ -63,4 +63,8 @@ Set `env.*` keys on the **host** before `cage vm start`, or configure `secrets.p
 - CA: `.cage/.cache/ca/{ca.pem,ca.key}` (working tree; key never enters guest)
 - Proxy ports: `.cage/run/<id>/proxy.json` (`http_port`, SOCKS `port`)
 - Legacy listen: `.cage/run/<id>/http-proxy.json`
-- Egress/config hot-reload re-Configures headers; **listen ports stay put** until proxy restart
+- Secret templates (`{{ secrets.* }}`) are re-resolved by proxy-serve on each
+  prepare after `secrets.refresh_interval` (default `2m`) and http-proxy is
+  re-Configured (OAuth / `op read` refresh); **listen ports stay put** until
+  proxy restart
+- Egress allowlist hot-reloads from cage config independently

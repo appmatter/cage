@@ -90,7 +90,7 @@ func (h HumanTrafficLogger) Log(e TrafficEvent) {
 	h.Print("%s", FormatTrafficHuman(e))
 }
 
-// FormatTrafficHuman is the stderr / vm logs display line (without "cage: " prefix).
+// FormatTrafficHuman is the vm logs display line (without "cage: " prefix).
 func FormatTrafficHuman(e TrafficEvent) string {
 	switch e.Action {
 	case "RELOAD":
