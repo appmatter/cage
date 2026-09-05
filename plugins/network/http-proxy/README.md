@@ -26,7 +26,7 @@ network:
 | --- | --- |
 | `url` | Upstream base (host used for MITM Host match; path used by legacy listen join) |
 | `headers` | Injected on upstream (override guest) |
-| `listen` | Optional legacy clear-HTTP bind; `0`/omit = ephemeral when used |
+| `listen` | Optional legacy clear-HTTP bind; `0`/omit = ephemeral. Prefer omit — fixed ports clash when multiple cages (or worktrees) run on one host. MITM does not need `listen`. |
 
 Install: `cage plugin install -l ./plugins/network/http-proxy`.
 

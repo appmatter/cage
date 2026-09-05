@@ -135,15 +135,14 @@ network:
     # Host-side protocol proxies. Secrets stay on host.
     # Prefer profile overrides over conditionals in templates.
     # ≥2 terminate plugins → explicit unique priority (operator only).
+    # No fixed listen — omit so clear-HTTP binds (if any) are ephemeral; multi-cage safe. MITM needs none.
     http-proxy:
       priority: 1
       openai:
-        listen: 18080
         url: https://api.openai.com/v1
         headers:
           Authorization: "Bearer {{ env.OPENAI_API_KEY }}"
       anthropic:
-        listen: 18081
         url: https://api.anthropic.com
         headers:
           # Anthropic uses x-api-key (not Authorization). Guest sends fake from models.json; host injects real.

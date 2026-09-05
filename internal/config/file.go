@@ -224,7 +224,7 @@ type Network struct {
 // NetworkProxy is host SOCKS5 / HTTP CONNECT / softnet lock settings under network.proxy.
 type NetworkProxy struct {
 	Disabled *bool `yaml:"disabled,omitempty"` // omit/false = proxy ON
-	Logging  *bool `yaml:"logging,omitempty"`  // CONNECT allow/deny on stderr
+	Logging  *bool `yaml:"logging,omitempty"`  // CONNECT JSONL → .cage/run/<id>/proxy.log
 	MITM     *bool `yaml:"mitm,omitempty"`     // omit/true = HTTPS MITM when proxy on; false = tunnel only
 }
 

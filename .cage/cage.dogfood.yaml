@@ -33,7 +33,6 @@ network:
     # Full endpoint replace on merge — keep listen/url from base.
     http-proxy:
       openai:
-        listen: 18080
         # ChatGPT/Codex subscription OAuth (not Platform API keys).
         url: https://chatgpt.com/backend-api/codex
         headers:
@@ -45,7 +44,6 @@ network:
         # headers:
         #   Authorization: "Bearer {{ env.OPENAI_API_KEY }}"
       anthropic:
-        listen: 18081
         url: https://api.anthropic.com
         headers:
           x-api-key: "{{ secrets.onepassword.ANTHROPIC_API_KEY }}"

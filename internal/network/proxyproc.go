@@ -192,9 +192,15 @@ func StartDetachedProxy(projectRoot, vmID, cageBin string, opts StartDetachedPro
 		}
 	}
 	cmd := exec.Command(cageBin, args...)
-	cmd.Stdout = os.Stderr
-	cmd.Stderr = os.Stderr
-	cmd.Stdin = os.Stdin
+	// Detach from the operator TTY — traffic stays in proxy.log; follow with `cage vm logs -f`.
+	devNull, err := os.OpenFile(os.DevNull, os.O_RDWR, 0)
+	if err != nil {
+		return ProxyState{}, fmt.Errorf("proxy-serve open %s: %w", os.DevNull, err)
+	}
+	defer devNull.Close()
+	cmd.Stdin = devNull
+	cmd.Stdout = devNull
+	cmd.Stderr = devNull
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := cmd.Start(); err != nil {
 		if hpResolvedPath != "" {

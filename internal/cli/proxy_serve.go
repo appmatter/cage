@@ -13,7 +13,6 @@ import (
 	"github.com/appmatter/cage/internal/network"
 	"github.com/appmatter/cage/internal/pluginhost"
 	"github.com/appmatter/cage/internal/secrets"
-	"github.com/appmatter/cage/internal/termlog"
 	netplugin "github.com/appmatter/cage/pkg/plugin/v1/network"
 )
 
@@ -81,10 +80,7 @@ func newProxyServeCmd() *cobra.Command {
 					return err
 				}
 				defer logFile.Close()
-				traffic = network.MultiTrafficLogger{
-					network.NewJSONLTrafficLogger(logFile),
-					network.HumanTrafficLogger{Print: termlog.CLI},
-				}
+				traffic = network.NewJSONLTrafficLogger(logFile)
 			}
 			reload := network.EgressReloadOpts{Traffic: traffic}
 			if configPath != "" {
@@ -192,7 +188,7 @@ func newProxyServeCmd() *cobra.Command {
 	cmd.Flags().StringVar(&httpProxyResolved, "http-proxy-resolved", "", "optional pre-resolved http-proxy yaml (deleted after read)")
 	cmd.Flags().StringVar(&readyPath, "ready", "", "path written when listening")
 	cmd.Flags().StringVar(&configPath, "config", "", "active cage yaml (hot-reload egress)")
-	cmd.Flags().BoolVar(&logTraffic, "log", false, "log CONNECT events to proxy.log + stderr")
+	cmd.Flags().BoolVar(&logTraffic, "log", false, "log CONNECT events to proxy.log (JSONL)")
 	cmd.Flags().BoolVar(&softnet, "softnet", false, "host-only softnet active (advisory SOFTNET log line)")
 	cmd.Flags().BoolVar(&denyHTTP, "deny-http", false, "inject HTTP 403 on plain-HTTP egress DENY")
 	cmd.Flags().StringVar(&denyMessage, "deny-message", "", "body for --deny-http (default built-in)")

@@ -17,7 +17,7 @@ Lone filter plugin: omit `priority` (defaults to `1`). See [project structure](.
 
 `network.proxy.disabled: true` turns off the SOCKS proxy and softnet lock (open guest networking; debug escape).
 
-`network.proxy.logging: true` writes CONNECT events as JSONL to `.cage/run/<id>/proxy.log` (and mirrors human lines on the start tty). Softnet drops outside SOCKS are not per-packet; with logging on you also get advisory `SOFTNET` lines (active + start probe) — see [softnet](../../runtime/tart/docs/softnet.md). Follow with:
+`network.proxy.logging: true` writes CONNECT events as JSONL to `.cage/run/<id>/proxy.log` (not the start TTY — use follow below). Softnet drops outside SOCKS are not per-packet; with logging on you also get advisory `SOFTNET` lines (active + start probe) — see [softnet](../../runtime/tart/docs/softnet.md). Follow with:
 
 ```bash
 cage vm logs -f
@@ -68,7 +68,7 @@ Proxy watches the active cage config chain (`cage.yaml` + extends) and `.cage/ru
 network:
   proxy:
     disabled: false # omit = proxy ON
-    logging: true   # optional: CONNECT allow/deny on stderr
+    logging: true   # optional: CONNECT JSONL → .cage/run/<id>/proxy.log
     mitm: true      # omit = HTTPS MITM on; false = tunnel only
   plugins:
     egress:
