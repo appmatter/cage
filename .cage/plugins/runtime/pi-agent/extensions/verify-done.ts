@@ -8,6 +8,7 @@ export default function (pi: ExtensionAPI) {
 	let edited = false;
 	let tested = false;
 	let nudges = 0;
+	let pendingNudge = false;
 
 	const reset = () => {
 		edited = false;
@@ -15,17 +16,13 @@ export default function (pi: ExtensionAPI) {
 		nudges = 0;
 	};
 
-	pi.on("before_agent_start", async (event) => {
-		reset();
-		const prompt = event.prompt ?? "";
-		if (!looksLikeImplementation(prompt)) {
-			return;
+	pi.on("before_agent_start", async () => {
+		// Follow-up from agent_end must keep edited/nudges or the second nudge never fires.
+		if (pendingNudge) {
+			pendingNudge = false;
+		} else {
+			reset();
 		}
-		return {
-			systemPrompt:
-				event.systemPrompt +
-				"\n\n[verify-done] This is implementation work. Map → implement → run tests → evidence table before finishing. Do not claim done without Validation output.",
-		};
 	});
 
 	pi.on("tool_call", async (event) => {
@@ -33,11 +30,19 @@ export default function (pi: ExtensionAPI) {
 		if (name === "write" || name === "edit") {
 			edited = true;
 		}
-		if (name === "bash" || name === "powershell") {
-			const command = String((event.input as { command?: string })?.command ?? "");
-			if (/\bgo\s+test\b/.test(command) || /implement-pr\/scripts\/verify\.sh/.test(command)) {
-				tested = true;
-			}
+	});
+
+	pi.on("tool_result", async (event) => {
+		const name = event.toolName ?? "";
+		if (name !== "bash" && name !== "powershell") {
+			return;
+		}
+		if (event.isError) {
+			return;
+		}
+		const command = String((event.input as { command?: string })?.command ?? "");
+		if (/\bgo\s+test\b/.test(command) || /implement-pr\/scripts\/verify\.sh/.test(command)) {
+			tested = true;
 		}
 	});
 
@@ -51,6 +56,7 @@ export default function (pi: ExtensionAPI) {
 			return;
 		}
 		nudges++;
+		pendingNudge = true;
 		const missing = [
 			!tested ? "run tests for packages you changed (default: go test ./...)" : "",
 			!hasEvidence ? "end with Evidence + Validation sections" : "",
@@ -65,12 +71,7 @@ export default function (pi: ExtensionAPI) {
 	});
 }
 
-function looksLikeImplementation(prompt: string): boolean {
-	return /\b(implement|fix|refactor|add|create|build|PR|pull request|Tests:|go test|API|endpoint|route)\b/i.test(
-		prompt,
-	);
-}
-
+/** Text from the last assistant message in the agent transcript. */
 function lastAssistantText(messages: unknown): string {
 	if (!Array.isArray(messages)) {
 		return "";
