@@ -70,17 +70,15 @@ type Terminate interface {
 }
 
 // FilterPluginMap is the go-plugin map for a filter plugin process.
+// Client operations are registered by the plugin binary via client.Register.
 func FilterPluginMap(f Filter) map[string]plugin.Plugin {
-	return map[string]plugin.Plugin{
-		FilterPluginName: &FilterRPCPlugin{Impl: f},
-	}
+	return map[string]plugin.Plugin{FilterPluginName: &FilterRPCPlugin{Impl: f}}
 }
 
 // TerminatePluginMap is the go-plugin map for a terminate plugin process.
+// Client operations are registered by the plugin binary via client.Register.
 func TerminatePluginMap(t Terminate) map[string]plugin.Plugin {
-	return map[string]plugin.Plugin{
-		TerminatePluginName: &TerminateRPCPlugin{Impl: t},
-	}
+	return map[string]plugin.Plugin{TerminatePluginName: &TerminateRPCPlugin{Impl: t}}
 }
 
 // FilterRPCPlugin is the go-plugin net/rpc adapter for Filter.

@@ -28,10 +28,9 @@ type Store interface {
 }
 
 // PluginMap is the go-plugin map for a secrets store process.
+// Client operations are registered by the plugin binary via client.Register.
 func PluginMap(s Store) map[string]plugin.Plugin {
-	return map[string]plugin.Plugin{
-		PluginName: &RPCPlugin{Impl: s},
-	}
+	return map[string]plugin.Plugin{PluginName: &RPCPlugin{Impl: s}}
 }
 
 // RPCPlugin is the go-plugin net/rpc adapter for Store.

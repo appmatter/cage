@@ -97,6 +97,7 @@ func Install(opts InstallOptions) (Manifest, error) {
 		m.Hooks = append([]string{}, meta.Hooks...)
 		m.Commands = append([]string{}, meta.Commands...)
 		m.EgressHints = append([]EgressHint{}, meta.EgressHints...)
+		m.Client = meta.Client
 	}
 	if opts.Project {
 		base := opts.ProjectRoot
@@ -239,6 +240,7 @@ type pluginMeta struct {
 	Hooks       []string     `json:"hooks"`
 	Commands    []string     `json:"commands"`
 	EgressHints []EgressHint `json:"egress_hints"`
+	Client      bool         `json:"client"`
 }
 
 func readPluginMeta(buildDir string) (pluginMeta, error) {

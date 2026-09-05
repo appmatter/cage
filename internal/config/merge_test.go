@@ -4,7 +4,10 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 func TestMergeNestedSecretsProxiesMention(t *testing.T) {
@@ -88,6 +91,13 @@ network:
 	if len(merged.FS.Plugins.SecretsScanner.Allow) != 1 || merged.FS.Plugins.SecretsScanner.Allow[0].Name != "OPENAI_API_KEY" {
 		t.Fatalf("scanner allow kept: %#v", merged.FS.Plugins.SecretsScanner.Allow)
 	}
+	var mentionFromSeat Mention
+	if err := yaml.Unmarshal(merged.FS.PluginSeats()[0].YAML, &mentionFromSeat); err != nil {
+		t.Fatal(err)
+	}
+	if merged.FS.Plugins.Mention.Include[0] != mentionFromSeat.Include[0] || merged.FS.Plugins.Mention.Exclude[0] != mentionFromSeat.Exclude[0] {
+		t.Fatalf("mention views diverged: typed=%+v seat=%+v", merged.FS.Plugins.Mention, mentionFromSeat)
+	}
 	op := merged.Secrets.Plugins["personal-op"]
 	if op.Plugin != "onepassword" {
 		t.Fatalf("plugin id kept: %#v", op)
@@ -103,6 +113,68 @@ network:
 	}
 	if merged.Network.Plugins.HTTPProxy.Endpoints["anthropic"].URL == "" {
 		t.Fatal("anthropic proxy missing")
+	}
+	var proxyFromSeat ProtocolProxies
+	for _, seat := range merged.Network.PluginSeats() {
+		if seat.Name == "http-proxy" {
+			if err := yaml.Unmarshal(seat.YAML, &proxyFromSeat); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if proxyFromSeat.Endpoints["anthropic"].URL != merged.Network.Plugins.HTTPProxy.Endpoints["anthropic"].URL {
+		t.Fatalf("proxy views diverged: typed=%+v seat=%+v", merged.Network.Plugins.HTTPProxy, proxyFromSeat)
+	}
+}
+
+func TestGenericPluginSeatsKeepConfiguredNames(t *testing.T) {
+	root := t.TempDir()
+	base := filepath.Join(root, "cage.yaml")
+	profile := filepath.Join(root, "cage.dev.yaml")
+	if err := os.WriteFile(base, []byte(`
+runtime:
+  plugins:
+    test: {image: image}
+fs:
+  plugins:
+    ordinary:
+      plugin: fake-fs
+      base: true
+network:
+  plugins:
+    unusual:
+      plugin: fake-network
+      value: base
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(profile, []byte(`
+extends: cage.yaml
+fs:
+  plugins:
+    ordinary:
+      override: true
+network:
+  plugins:
+    unusual:
+      value: profile
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	merged, err := loadChain(profile, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fs := merged.FS.PluginSeats()
+	if len(fs) != 1 || fs[0].Name != "ordinary" || fs[0].PluginID != "fake-fs" || string(fs[0].YAML) == "" {
+		t.Fatalf("fs seats: %#v", fs)
+	}
+	network := merged.Network.PluginSeats()
+	if len(network) != 1 || network[0].Name != "unusual" || network[0].PluginID != "fake-network" || string(network[0].YAML) == "" {
+		t.Fatalf("network seats: %#v", network)
+	}
+	if !strings.Contains(string(network[0].YAML), "value: profile") {
+		t.Fatalf("network seat not merged: %s", network[0].YAML)
 	}
 }
 
@@ -150,6 +222,9 @@ func TestLoadSecretsPluginsFixtures(t *testing.T) {
 		t.Fatal("anthropic proxy missing")
 	}
 
+	if runtime.GOOS != "darwin" {
+		t.Skip("tart fixture requires darwin host")
+	}
 	r, err := LoadResolved(dir, filepath.Join(dir, "cage.multi-account.yaml"), runtime.GOOS)
 	if err != nil {
 		t.Fatal(err)

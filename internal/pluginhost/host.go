@@ -11,6 +11,8 @@ import (
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/go-plugin"
 
+	clientplugin "github.com/appmatter/cage/pkg/plugin/v1/client"
+	fsplugin "github.com/appmatter/cage/pkg/plugin/v1/fs"
 	netplugin "github.com/appmatter/cage/pkg/plugin/v1/network"
 	runtimeplugin "github.com/appmatter/cage/pkg/plugin/v1/runtime"
 	secretsplugin "github.com/appmatter/cage/pkg/plugin/v1/secrets"
@@ -30,6 +32,7 @@ type Manifest struct {
 	Hooks       []string     `json:"hooks,omitempty"`    // build-time hook attachments
 	Commands    []string     `json:"commands,omitempty"` // CLI verbs (e.g. init)
 	EgressHints []EgressHint `json:"egress_hints,omitempty"`
+	Client      bool         `json:"client,omitempty"` // client service is registered in the plugin process
 }
 
 // HasCommand reports whether the manifest advertises cmd (e.g. "init").
@@ -166,69 +169,58 @@ func ListManifests(projectRoot string) ([]Manifest, error) {
 	return out, nil
 }
 
-// Client is a live runtime plugin connection.
-type Client struct {
-	client  *plugin.Client
-	Backend runtimeplugin.Backend
+// process owns a go-plugin subprocess.
+type process struct {
+	client *plugin.Client
 }
 
 // Close kills the plugin process.
-func (c *Client) Close() {
-	if c != nil && c.client != nil {
-		c.client.Kill()
+func (p *process) Close() {
+	if p != nil && p.client != nil {
+		p.client.Kill()
 	}
+}
+
+// Client is a live runtime plugin connection.
+type Client struct {
+	process
+	Backend runtimeplugin.Backend
 }
 
 // HooksClient is a live runtime hooks plugin connection.
 type HooksClient struct {
-	client *plugin.Client
-	Hooks  runtimeplugin.Hooks
-}
-
-// Close kills the plugin process.
-func (c *HooksClient) Close() {
-	if c != nil && c.client != nil {
-		c.client.Kill()
-	}
+	process
+	Hooks runtimeplugin.Hooks
 }
 
 // NetworkFilterClient is a live network filter plugin connection.
 type NetworkFilterClient struct {
-	client *plugin.Client
+	process
 	Filter netplugin.Filter
-}
-
-// Close kills the plugin process.
-func (c *NetworkFilterClient) Close() {
-	if c != nil && c.client != nil {
-		c.client.Kill()
-	}
 }
 
 // NetworkTerminateClient is a live network terminate plugin connection.
 type NetworkTerminateClient struct {
-	client    *plugin.Client
+	process
 	Terminate netplugin.Terminate
-}
-
-// Close kills the plugin process.
-func (c *NetworkTerminateClient) Close() {
-	if c != nil && c.client != nil {
-		c.client.Kill()
-	}
 }
 
 // SecretsClient is a live secrets store plugin connection.
 type SecretsClient struct {
-	client *plugin.Client
-	Store  secretsplugin.Store
+	process
+	Store secretsplugin.Store
 }
 
-// Close kills the plugin process.
-func (c *SecretsClient) Close() {
-	if c != nil && c.client != nil {
-		c.client.Kill()
-	}
+// CapabilityClient is a live generic client-capability connection.
+type CapabilityClient struct {
+	process
+	Capability clientplugin.Capability
+}
+
+// FSClient is a live fs context plugin connection.
+type FSClient struct {
+	process
+	Plugin fsplugin.Plugin
 }
 
 // DispenseRuntime launches a runtime plugin binary and returns Backend.
@@ -262,7 +254,7 @@ func DispenseRuntime(cmdPath string) (*Client, error) {
 		client.Kill()
 		return nil, fmt.Errorf("unexpected plugin type %T", raw)
 	}
-	return &Client{client: client, Backend: b}, nil
+	return &Client{process: process{client: client}, Backend: b}, nil
 }
 
 // DispenseRuntimeHooks launches a runtime hooks plugin binary.
@@ -295,7 +287,7 @@ func DispenseRuntimeHooks(cmdPath string) (*HooksClient, error) {
 		client.Kill()
 		return nil, fmt.Errorf("unexpected plugin type %T", raw)
 	}
-	return &HooksClient{client: client, Hooks: h}, nil
+	return &HooksClient{process: process{client: client}, Hooks: h}, nil
 }
 
 // DispenseNetworkFilter launches a network filter plugin binary.
@@ -326,7 +318,7 @@ func DispenseNetworkFilter(cmdPath string) (*NetworkFilterClient, error) {
 		client.Kill()
 		return nil, fmt.Errorf("unexpected plugin type %T", raw)
 	}
-	return &NetworkFilterClient{client: client, Filter: f}, nil
+	return &NetworkFilterClient{process: process{client: client}, Filter: f}, nil
 }
 
 // DispenseNetworkTerminate launches a network terminate plugin binary.
@@ -357,7 +349,85 @@ func DispenseNetworkTerminate(cmdPath string) (*NetworkTerminateClient, error) {
 		client.Kill()
 		return nil, fmt.Errorf("unexpected plugin type %T", raw)
 	}
-	return &NetworkTerminateClient{client: client, Terminate: t}, nil
+	return &NetworkTerminateClient{process: process{client: client}, Terminate: t}, nil
+}
+
+// DispenseFS launches an fs context plugin.
+func DispenseFS(cmdPath string) (*FSClient, error) {
+	client := plugin.NewClient(&plugin.ClientConfig{HandshakeConfig: fsplugin.Handshake, Plugins: map[string]plugin.Plugin{fsplugin.PluginName: &fsplugin.RPCPlugin{}}, Cmd: exec.Command(cmdPath), AllowedProtocols: []plugin.Protocol{plugin.ProtocolNetRPC}, SyncStderr: os.Stderr, Logger: hclog.New(&hclog.LoggerOptions{Name: "plugin", Output: io.Discard, Level: hclog.Error})})
+	rpcClient, err := client.Client()
+	if err != nil {
+		client.Kill()
+		return nil, err
+	}
+	raw, err := rpcClient.Dispense(fsplugin.PluginName)
+	if err != nil {
+		client.Kill()
+		return nil, err
+	}
+	p, ok := raw.(fsplugin.Plugin)
+	if !ok {
+		client.Kill()
+		return nil, fmt.Errorf("unexpected plugin type %T", raw)
+	}
+	return &FSClient{process: process{client: client}, Plugin: p}, nil
+}
+
+// DispenseRuntimeCapability discovers the optional client service on a runtime plugin.
+func DispenseRuntimeCapability(cmdPath string) (*CapabilityClient, bool, error) {
+	return dispenseCapability(cmdPath, runtimeplugin.Handshake, map[string]plugin.Plugin{
+		runtimeplugin.PluginName: &runtimeplugin.RPCPlugin{},
+		clientplugin.PluginName:  &clientplugin.RPCPlugin{},
+	})
+}
+
+// DispenseFSCapability discovers the optional client service on an fs plugin.
+func DispenseFSCapability(cmdPath string) (*CapabilityClient, bool, error) {
+	return dispenseCapability(cmdPath, fsplugin.Handshake, map[string]plugin.Plugin{
+		fsplugin.PluginName:     &fsplugin.RPCPlugin{},
+		clientplugin.PluginName: &clientplugin.RPCPlugin{},
+	})
+}
+
+// DispenseNetworkCapability discovers the optional client service on a network plugin.
+func DispenseNetworkCapability(cmdPath string) (*CapabilityClient, bool, error) {
+	return dispenseCapability(cmdPath, netplugin.Handshake, map[string]plugin.Plugin{
+		netplugin.FilterPluginName:    &netplugin.FilterRPCPlugin{},
+		netplugin.TerminatePluginName: &netplugin.TerminateRPCPlugin{},
+		clientplugin.PluginName:       &clientplugin.RPCPlugin{},
+	})
+}
+
+// DispenseSecretsCapability discovers the optional client service on a secrets plugin.
+func DispenseSecretsCapability(cmdPath string) (*CapabilityClient, bool, error) {
+	return dispenseCapability(cmdPath, secretsplugin.Handshake, map[string]plugin.Plugin{
+		secretsplugin.PluginName: &secretsplugin.RPCPlugin{},
+		clientplugin.PluginName:  &clientplugin.RPCPlugin{},
+	})
+}
+
+func dispenseCapability(cmdPath string, handshake plugin.HandshakeConfig, plugins map[string]plugin.Plugin) (*CapabilityClient, bool, error) {
+	pc := plugin.NewClient(&plugin.ClientConfig{
+		HandshakeConfig: handshake, Plugins: plugins, Cmd: exec.Command(cmdPath),
+		AllowedProtocols: []plugin.Protocol{plugin.ProtocolNetRPC}, SyncStderr: os.Stderr,
+		Logger: hclog.New(&hclog.LoggerOptions{Name: "plugin", Output: io.Discard, Level: hclog.Error}),
+	})
+	rpcClient, err := pc.Client()
+	if err != nil {
+		pc.Kill()
+		return nil, false, err
+	}
+	raw, err := rpcClient.Dispense(clientplugin.PluginName)
+	if err != nil {
+		pc.Kill()
+		return nil, false, nil
+	}
+	capability, ok := raw.(clientplugin.Capability)
+	if !ok {
+		pc.Kill()
+		return nil, false, fmt.Errorf("unexpected client capability type %T", raw)
+	}
+	return &CapabilityClient{process: process{client: pc}, Capability: capability}, true, nil
 }
 
 // DispenseSecrets launches a secrets store plugin binary.
@@ -390,5 +460,5 @@ func DispenseSecrets(cmdPath string) (*SecretsClient, error) {
 		client.Kill()
 		return nil, fmt.Errorf("unexpected plugin type %T", raw)
 	}
-	return &SecretsClient{client: client, Store: s}, nil
+	return &SecretsClient{process: process{client: client}, Store: s}, nil
 }

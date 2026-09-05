@@ -1,9 +1,14 @@
 package cli
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"regexp"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
@@ -29,6 +34,10 @@ func newVMCmd() *cobra.Command {
 	return cmd
 }
 
+func addVMIDFlag(cmd *cobra.Command, id *string) {
+	cmd.Flags().StringVar(id, "id", "", "VM instance ID (default: default)")
+}
+
 func newVMCreateCmd() *cobra.Command {
 	var (
 		configPath string
@@ -38,25 +47,25 @@ func newVMCreateCmd() *cobra.Command {
 		Use:   "create",
 		Short: "Create a VM from config image",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			spec, backendName, r, err := loadSpec(cmd, configPath, id)
+			spec, instanceID, backendName, projectRoot, r, err := loadSpec(cmd, configPath, id)
 			if err != nil {
 				return err
 			}
-			return withRuntime(backendName, func(b runtimeplugin.Backend) error {
-				if err := applyBake(&spec, r, b); err != nil {
+			return withRuntime(projectRoot, backendName, func(b runtimeplugin.Backend) error {
+				if err := applyBake(projectRoot, &spec, r, b); err != nil {
 					return err
 				}
-				termlog.CLI("create %s (plugin=%s image=%s)", spec.ID, backendName, spec.Image)
+				termlog.CLI("create %s (plugin=%s image=%s)", instanceID, backendName, spec.Image)
 				if err := b.Create(spec); err != nil {
 					return err
 				}
-				termlog.CLI("created %s", spec.ID)
+				termlog.CLI("created %s", instanceID)
 				return nil
 			})
 		},
 	}
 	cmd.Flags().StringVar(&configPath, "config", "", "path to cage yaml")
-	cmd.Flags().StringVar(&id, "id", "", "VM name (default: cage-vm)")
+	addVMIDFlag(cmd, &id)
 	return cmd
 }
 
@@ -70,7 +79,7 @@ func newVMStartCmd() *cobra.Command {
 		Use:   "start",
 		Short: "Start a VM (applies mounts, copies, host proxy when enabled)",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			spec, backendName, r, err := loadSpec(cmd, configPath, id)
+			spec, instanceID, backendName, projectRoot, r, err := loadSpec(cmd, configPath, id)
 			if err != nil {
 				return err
 			}
@@ -86,9 +95,9 @@ func newVMStartCmd() *cobra.Command {
 				spec.ExtraRunArgs = argsSoft
 			}
 			termlog.CLI("start %s (plugin=%s mounts=%d copies=%d proxy=%v)",
-				spec.ID, backendName, len(spec.Mounts), len(spec.Copies), proxyOn)
-			hooks.WarnMissingEgress(".", r, termlog.CLI)
-			secretVals, err := resolveSecretsForStart(".", r, spec.Env)
+				instanceID, backendName, len(spec.Mounts), len(spec.Copies), proxyOn)
+			hooks.WarnMissingEgress(projectRoot, r, termlog.CLI)
+			secretVals, err := resolveSecretsForStart(projectRoot, r, spec.Env)
 			if err != nil {
 				return err
 			}
@@ -99,8 +108,8 @@ func newVMStartCmd() *cobra.Command {
 				}
 			}
 			var proxyState network.ProxyState
-			err = withRuntime(backendName, func(b runtimeplugin.Backend) error {
-				if err := applyBake(&spec, r, b); err != nil {
+			err = withRuntime(projectRoot, backendName, func(b runtimeplugin.Backend) error {
+				if err := applyBake(projectRoot, &spec, r, b); err != nil {
 					return err
 				}
 				// Create from derived/base if the sandbox VM is missing.
@@ -115,45 +124,45 @@ func newVMStartCmd() *cobra.Command {
 					if err != nil {
 						return err
 					}
-					st, err := startHostProxy(".", spec.ID, r, guestIPs, secretVals)
+					st, err := startHostProxy(projectRoot, instanceID, spec.ID, r, guestIPs, secretVals)
 					if err != nil {
 						return err
 					}
 					proxyState = st
-					if err := injectGuestProxyEnv(b, spec.ID, proxyState, r.Network.MITMEnabled()); err != nil {
+					if err := injectGuestProxyEnv(projectRoot, b, spec.ID, proxyState, r.Network.MITMEnabled()); err != nil {
 						return err
 					}
 					if r.Network.LoggingEnabled() {
-						probeSoftnetDrop(".", spec.ID, b)
+						probeSoftnetDrop(projectRoot, spec.ID, b)
 					}
 				}
 				if err := injectGuestRuntimeEnv(b, spec.ID, spec.Env); err != nil {
 					return err
 				}
-				if err := hooks.RunHook(".", r.Runtime, runtimeplugin.HookOnStart, termlog.CLI, hooks.RunHookOpts{
+				if err := hooks.RunHook(projectRoot, r.Runtime, runtimeplugin.HookOnStart, termlog.CLI, hooks.RunHookOpts{
 					ConfigPath: r.Path,
 					Backend:    b,
 					VMID:       spec.ID,
 				}); err != nil {
 					return err
 				}
-				termlog.CLI("started %s", spec.ID)
+				termlog.CLI("started %s", instanceID)
 				return nil
 			})
 			if err != nil && proxyOn {
-				_ = network.StopDetachedProxy(".", spec.ID)
+				_ = network.StopDetachedProxy(projectRoot, spec.ID)
 			}
 			if err != nil || !follow {
 				return err
 			}
 			termlog.CLI("following proxy log (ctrl-c to stop; VM keeps running)")
-			return network.WriteTrafficFollow(network.ProxyLogPath(".", spec.ID), true, func(line string) {
+			return network.WriteTrafficFollow(network.ProxyLogPath(projectRoot, spec.ID), true, func(line string) {
 				termlog.CLI("%s", line)
 			})
 		},
 	}
 	cmd.Flags().StringVar(&configPath, "config", "", "path to cage yaml")
-	cmd.Flags().StringVar(&id, "id", "", "VM name (default: cage-vm)")
+	addVMIDFlag(cmd, &id)
 	cmd.Flags().BoolVarP(&follow, "follow", "f", false, "after start, follow proxy CONNECT log (needs network.proxy.logging)")
 	return cmd
 }
@@ -167,26 +176,27 @@ func newVMStopCmd() *cobra.Command {
 		Use:   "stop",
 		Short: "Stop a VM",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			_, backendName, err := loadRuntime(cmd, configPath)
+			r, backendName, projectRoot, err := loadRuntimeScope(cmd, configPath)
 			if err != nil {
 				return err
 			}
-			if id == "" {
-				id = defaultVMID()
+			instanceID, id, err := resolveVMInstance(projectRoot, r.Path, id)
+			if err != nil {
+				return err
 			}
-			termlog.CLI("stop %s", id)
-			_ = network.StopDetachedProxy(".", id)
-			return withRuntime(backendName, func(b runtimeplugin.Backend) error {
+			termlog.CLI("stop %s", instanceID)
+			_ = network.StopDetachedProxy(projectRoot, id)
+			return withRuntime(projectRoot, backendName, func(b runtimeplugin.Backend) error {
 				if err := b.Stop(id); err != nil {
 					return err
 				}
-				termlog.CLI("stopped %s", id)
+				termlog.CLI("stopped %s", instanceID)
 				return nil
 			})
 		},
 	}
 	cmd.Flags().StringVar(&configPath, "config", "", "path to cage yaml")
-	cmd.Flags().StringVar(&id, "id", "", "VM name (default: cage-vm)")
+	addVMIDFlag(cmd, &id)
 	return cmd
 }
 
@@ -199,25 +209,26 @@ func newVMStatusCmd() *cobra.Command {
 		Use:   "status",
 		Short: "Show VM status",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			_, backendName, err := loadRuntime(cmd, configPath)
+			r, backendName, projectRoot, err := loadRuntimeScope(cmd, configPath)
 			if err != nil {
 				return err
 			}
-			if id == "" {
-				id = defaultVMID()
+			instanceID, id, err := resolveVMInstance(projectRoot, r.Path, id)
+			if err != nil {
+				return err
 			}
-			return withRuntime(backendName, func(b runtimeplugin.Backend) error {
+			return withRuntime(projectRoot, backendName, func(b runtimeplugin.Backend) error {
 				st, err := b.Status(id)
 				if err != nil {
 					return err
 				}
-				fmt.Printf("%s\t%s\n", st.ID, st.State)
+				fmt.Printf("%s\t%s\n", instanceID, st.State)
 				return nil
 			})
 		},
 	}
 	cmd.Flags().StringVar(&configPath, "config", "", "path to cage yaml")
-	cmd.Flags().StringVar(&id, "id", "", "VM name (default: cage-vm)")
+	addVMIDFlag(cmd, &id)
 	return cmd
 }
 
@@ -230,23 +241,23 @@ func newVMDeleteCmd() *cobra.Command {
 		Use:   "delete",
 		Short: "Delete a VM",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			spec, backendName, _, err := loadSpec(cmd, configPath, id)
+			spec, instanceID, backendName, projectRoot, _, err := loadSpec(cmd, configPath, id)
 			if err != nil {
 				return err
 			}
-			termlog.CLI("delete %s", spec.ID)
-			_ = network.StopDetachedProxy(".", spec.ID)
-			return withRuntime(backendName, func(b runtimeplugin.Backend) error {
+			termlog.CLI("delete %s", instanceID)
+			_ = network.StopDetachedProxy(projectRoot, spec.ID)
+			return withRuntime(projectRoot, backendName, func(b runtimeplugin.Backend) error {
 				if err := b.Delete(spec); err != nil {
 					return err
 				}
-				termlog.CLI("deleted %s", spec.ID)
+				termlog.CLI("deleted %s", instanceID)
 				return nil
 			})
 		},
 	}
 	cmd.Flags().StringVar(&configPath, "config", "", "path to cage yaml")
-	cmd.Flags().StringVar(&id, "id", "", "VM name (default: cage-vm)")
+	addVMIDFlag(cmd, &id)
 	return cmd
 }
 
@@ -266,15 +277,16 @@ func newVMExecCmd() *cobra.Command {
 				args = []string{"/var/lib/cage/shell"}
 				tty = true
 			}
-			r, backendName, err := loadRuntime(cmd, configPath)
+			r, backendName, projectRoot, err := loadRuntimeScope(cmd, configPath)
 			if err != nil {
 				return err
 			}
-			if id == "" {
-				id = defaultVMID()
+			_, id, err = resolveVMInstance(projectRoot, r.Path, id)
+			if err != nil {
+				return err
 			}
-			if err := withRuntime(backendName, func(b runtimeplugin.Backend) error {
-				return hooks.RunHook(".", r.Runtime, runtimeplugin.HookOnAttachShell, termlog.CLI, hooks.RunHookOpts{
+			if err := withRuntime(projectRoot, backendName, func(b runtimeplugin.Backend) error {
+				return hooks.RunHook(projectRoot, r.Runtime, runtimeplugin.HookOnAttachShell, termlog.CLI, hooks.RunHookOpts{
 					ConfigPath: r.Path,
 					Backend:    b,
 					VMID:       id,
@@ -287,13 +299,13 @@ func newVMExecCmd() *cobra.Command {
 			if tty {
 				return execTTY(backendName, id, args)
 			}
-			return withRuntime(backendName, func(b runtimeplugin.Backend) error {
+			return withRuntime(projectRoot, backendName, func(b runtimeplugin.Backend) error {
 				return b.Exec(id, runtimeplugin.ExecOpts{Argv: args})
 			})
 		},
 	}
 	cmd.Flags().StringVar(&configPath, "config", "", "path to cage yaml")
-	cmd.Flags().StringVar(&id, "id", "", "VM name (default: cage-vm)")
+	addVMIDFlag(cmd, &id)
 	cmd.Flags().BoolVarP(&tty, "tty", "t", false, "allocate a pseudo-TTY (implied when no args)")
 	return cmd
 }
@@ -324,32 +336,37 @@ func newVMLogsCmd() *cobra.Command {
 		Use:   "logs",
 		Short: "Show host proxy CONNECT log (JSONL under .cage/run/<id>/proxy.log)",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			_ = configPath
-			if id == "" {
-				id = defaultVMID()
+			r, _, projectRoot, err := loadRuntimeScope(cmd, configPath)
+			if err != nil {
+				return err
 			}
-			path := network.ProxyLogPath(".", id)
+			_, id, err = resolveVMInstance(projectRoot, r.Path, id)
+			if err != nil {
+				return err
+			}
+			path := network.ProxyLogPath(projectRoot, id)
 			return network.WriteTrafficFollow(path, follow, func(line string) {
 				termlog.CLI("%s", line)
 			})
 		},
 	}
-	cmd.Flags().StringVar(&configPath, "config", "", "unused; kept for consistency")
-	cmd.Flags().StringVar(&id, "id", "", "VM name (default: cage-vm)")
+	cmd.Flags().StringVar(&configPath, "config", "", "path to cage yaml")
+	addVMIDFlag(cmd, &id)
 	cmd.Flags().BoolVarP(&follow, "follow", "f", false, "follow new CONNECT events")
 	return cmd
 }
 
-func loadSpec(cmd *cobra.Command, configPath, id string) (runtimeplugin.Spec, string, config.Resolved, error) {
-	r, backendName, err := loadRuntime(cmd, configPath)
+func loadSpec(cmd *cobra.Command, configPath, id string) (runtimeplugin.Spec, string, string, string, config.Resolved, error) {
+	r, backendName, projectRoot, err := loadRuntimeScope(cmd, configPath)
 	if err != nil {
-		return runtimeplugin.Spec{}, "", config.Resolved{}, err
+		return runtimeplugin.Spec{}, "", "", "", config.Resolved{}, err
 	}
-	if id == "" {
-		id = defaultVMID()
+	instanceID, backendVMID, err := resolveVMInstance(projectRoot, r.Path, id)
+	if err != nil {
+		return runtimeplugin.Spec{}, "", "", "", config.Resolved{}, err
 	}
 	spec := runtimeplugin.Spec{
-		ID:        id,
+		ID:        backendVMID,
 		Image:     r.Runtime.Image,
 		Workdir:   r.Runtime.Workdir,
 		Graphics:  r.Runtime.Graphics,
@@ -369,16 +386,16 @@ func loadSpec(cmd *cobra.Command, configPath, id string) (runtimeplugin.Spec, st
 		})
 	}
 	spec.DenyMasks = append([]string{}, r.DenyMasks...)
-	return spec, backendName, r, nil
+	return spec, instanceID, backendName, projectRoot, r, nil
 }
 
 // applyBake collects before_bake attachments + seat bake scripts, then ensures derived image.
-func applyBake(spec *runtimeplugin.Spec, r config.Resolved, b runtimeplugin.Backend) error {
-	scripts, err := hooks.CollectBeforeBakeScripts(".", r.Runtime, termlog.CLI)
+func applyBake(projectRoot string, spec *runtimeplugin.Spec, r config.Resolved, b runtimeplugin.Backend) error {
+	scripts, err := hooks.CollectBeforeBakeScripts(projectRoot, r.Runtime, termlog.CLI)
 	if err != nil {
 		return err
 	}
-	img, hash, err := bake.EnsureDerived(".", r.Runtime.Image, scripts, "linux", r.Runtime.Backend, b, r.Runtime.Workdir, termlog.CLI)
+	img, hash, err := bake.EnsureDerived(projectRoot, r.Runtime.Image, scripts, "linux", r.Runtime.Backend, b, r.Runtime.Workdir, termlog.CLI)
 	if err != nil {
 		return err
 	}
@@ -389,7 +406,8 @@ func applyBake(spec *runtimeplugin.Spec, r config.Resolved, b runtimeplugin.Back
 	return nil
 }
 
-func startHostProxy(projectRoot, vmID string, r config.Resolved, allowedSources []string, secretVals secrets.Values) (network.ProxyState, error) {
+func startHostProxy(projectRoot, instanceID, backendVMID string, r config.Resolved, allowedSources []string, secretVals secrets.Values) (network.ProxyState, error) {
+	vmID := backendVMID
 	bin, err := os.Executable()
 	if err != nil {
 		return network.ProxyState{}, err
@@ -460,7 +478,7 @@ func startHostProxy(projectRoot, vmID string, r config.Resolved, allowedSources 
 		}
 	}
 	if r.Network.LoggingEnabled() {
-		termlog.CLI("proxy log %s (cage vm logs -f)", network.ProxyLogPath(projectRoot, vmID))
+		termlog.CLI("proxy log for %s (cage vm logs --id %s -f)", instanceID, instanceID)
 	}
 	return st, nil
 }
@@ -482,13 +500,13 @@ func resolveSecretsForStart(projectRoot string, r config.Resolved, env map[strin
 	return secrets.Resolve(projectRoot, r.Secrets.Plugins)
 }
 
-func injectGuestProxyEnv(b runtimeplugin.Backend, vmID string, st network.ProxyState, mitm bool) error {
+func injectGuestProxyEnv(projectRoot string, b runtimeplugin.Backend, vmID string, st network.ProxyState, mitm bool) error {
 	httpPort := st.HTTPPort
 	if httpPort <= 0 {
 		httpPort = st.Port
 	}
 	if mitm {
-		mitmCA, err := network.LoadOrCreateCA(".")
+		mitmCA, err := network.LoadOrCreateCA(projectRoot)
 		if err != nil {
 			return fmt.Errorf("mitm ca: %w", err)
 		}
@@ -505,7 +523,7 @@ func injectGuestProxyEnv(b runtimeplugin.Backend, vmID string, st network.ProxyS
 	}); err != nil {
 		return fmt.Errorf("guest proxy env: %w", err)
 	}
-	ports, err := network.ReadHTTPProxyState(".", vmID)
+	ports, err := network.ReadHTTPProxyState(projectRoot, vmID)
 	if err != nil || len(ports) == 0 {
 		return nil
 	}
@@ -571,20 +589,29 @@ func probeSoftnetDrop(projectRoot, vmID string, b runtimeplugin.Backend) {
 }
 
 func loadRuntime(cmd *cobra.Command, configPath string) (config.Resolved, string, error) {
-	path, err := config.Resolve(".", configPath)
-	if err != nil {
-		return config.Resolved{}, "", err
-	}
-	h := host.FromContext(cmd.Context())
-	r, err := config.LoadResolved(".", path, h.GOOS)
-	if err != nil {
-		return config.Resolved{}, "", err
-	}
-	return r, r.Runtime.Backend, nil
+	r, backend, _, err := loadRuntimeScope(cmd, configPath)
+	return r, backend, err
 }
 
-func withRuntime(backendName string, fn func(runtimeplugin.Backend) error) error {
-	cmdPath, _, err := pluginhost.ResolveCommand(".", "runtime", backendName)
+func loadRuntimeScope(cmd *cobra.Command, configPath string) (config.Resolved, string, string, error) {
+	projectRoot, err := filepath.Abs(".")
+	if err != nil {
+		return config.Resolved{}, "", "", err
+	}
+	path, err := config.Resolve(projectRoot, configPath)
+	if err != nil {
+		return config.Resolved{}, "", "", err
+	}
+	h := host.FromContext(cmd.Context())
+	r, err := config.LoadResolved(projectRoot, path, h.GOOS)
+	if err != nil {
+		return config.Resolved{}, "", "", err
+	}
+	return r, r.Runtime.Backend, projectRoot, nil
+}
+
+func withRuntime(projectRoot, backendName string, fn func(runtimeplugin.Backend) error) error {
+	cmdPath, _, err := pluginhost.ResolveCommand(projectRoot, "runtime", backendName)
 	if err != nil {
 		return err
 	}
@@ -596,9 +623,32 @@ func withRuntime(backendName string, fn func(runtimeplugin.Backend) error) error
 	return fn(client.Backend)
 }
 
-func defaultVMID() string {
-	if v := os.Getenv("CAGE_VM_ID"); v != "" {
-		return v
+var validInstanceID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`)
+
+func resolveInstanceID(id string) (string, error) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return "default", nil
 	}
-	return "cage-vm"
+	if !validInstanceID.MatchString(id) {
+		return "", fmt.Errorf("invalid VM instance ID %q", id)
+	}
+	return id, nil
+}
+
+func resolveVMInstance(projectRoot, configPath, id string) (string, string, error) {
+	instanceID, err := resolveInstanceID(id)
+	if err != nil {
+		return "", "", err
+	}
+	projectRoot, err = filepath.Abs(projectRoot)
+	if err != nil {
+		return "", "", err
+	}
+	configPath, err = filepath.Abs(configPath)
+	if err != nil {
+		return "", "", err
+	}
+	sum := sha256.Sum256([]byte(projectRoot + "\x00" + configPath + "\x00" + instanceID))
+	return instanceID, "cage-" + hex.EncodeToString(sum[:12]), nil
 }

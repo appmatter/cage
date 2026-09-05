@@ -82,7 +82,7 @@ No `--config`: one `cage*.yaml` → use it; several → interactive select ([CLI
 
 `cage vm start` applies resolved **mounts** (`tart run --dir`) and **copies** (into the guest after the VM is ready). Paths on `fs.deny` fail at `LoadResolved` / inspect when used as mount/copy hosts; matching descendants under an allowed mount are masked in the guest at start.
 
-By default start also runs a host **HTTP CONNECT** proxy (MITM on) plus SOCKS after the VM is up, allowlisting that guest’s source IP so peers cannot use each other’s proxy. Softnet host-only blocks direct internet ([softnet setup](../../../plugins/runtime/tart/docs/softnet.md)). Allowlists live on `network.plugins.egress`. Opt out with `network.proxy.disabled: true`. Set `network.proxy.logging: true` for CONNECT JSONL at `.cage/run/<id>/proxy.log` — follow with `cage vm logs -f` or `cage vm start -f`. Install egress when using an allowlist: `cage plugin install -l ./plugins/network/egress`. Guest proxy env uses `http://` (Node-safe): `/var/lib/cage/proxy.env`, profile hooks, `/var/lib/cage/shell`, and MITM CA install. Agents call real `https://…` URLs; Cage injects via `http-proxy` Host match. Certificate pinning may still break some clients.
+By default start also runs a host **HTTP CONNECT** proxy (MITM on) plus SOCKS after the VM is up, allowlisting that guest’s source IP so peers cannot use each other’s proxy. Softnet host-only blocks direct internet ([softnet setup](../../../plugins/runtime/tart/docs/softnet.md)). Allowlists live on `network.plugins.egress`. Opt out with `network.proxy.disabled: true`. Set `network.proxy.logging: true` for CONNECT JSONL; follow with `cage vm logs -f` or `cage vm start -f`. Install egress when using an allowlist: `cage plugin install -l ./plugins/network/egress`. Guest proxy env uses `http://` (Node-safe): `/var/lib/cage/proxy.env`, profile hooks, `/var/lib/cage/shell`, and MITM CA install. Agents call real `https://…` URLs; Cage injects via `http-proxy` Host match. Certificate pinning may still break some clients.
 
 ```bash
 cage vm create
@@ -97,7 +97,7 @@ cage vm delete
 cage vm status --config .cage/cage.yaml
 ```
 
-Default VM name is `cage-vm` (override with `--id` or `CAGE_VM_ID`).
+Default VM instance ID is `default`. Use `--id feature-01` to create or target another isolated VM from the same config. Cage derives an opaque backend VM ID from the project, active config, and instance ID, so `default` does not collide across projects. This replaces the old literal `cage-vm` / `CAGE_VM_ID` identity: delete old VMs before using this version. `--id` is the human instance ID, not the Tart VM name.
 
 ## Tart / network integration tests
 

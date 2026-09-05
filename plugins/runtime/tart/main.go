@@ -57,8 +57,8 @@ func (t *Tart) Create(spec runtimeplugin.Spec) error {
 	}
 	if exists {
 		if from, err := readImageStamp(spec.ID); err == nil && from != "" && from != spec.Image {
-			return fmt.Errorf("vm %q exists from image %q but config wants %q — cage vm delete --id %s first",
-				spec.ID, from, spec.Image, spec.ID)
+			return fmt.Errorf("VM instance exists from image %q but config wants %q — run cage vm delete --id <instance> first",
+				from, spec.Image)
 		}
 		progress("vm %q already exists", spec.ID)
 		return nil
@@ -266,7 +266,7 @@ func (t *Tart) Status(id string) (runtimeplugin.Status, error) {
 			return runtimeplugin.Status{ID: id, State: normalizeState(row.State)}, nil
 		}
 	}
-	return runtimeplugin.Status{ID: id, State: "unknown"}, fmt.Errorf("vm %q not found; run: cage vm create --id %s", id, id)
+	return runtimeplugin.Status{ID: id, State: "unknown"}, fmt.Errorf("VM instance not found; run cage vm create --id <instance>")
 }
 
 func (t *Tart) Delete(spec runtimeplugin.Spec) error {
@@ -286,7 +286,7 @@ func (t *Tart) Delete(spec runtimeplugin.Spec) error {
 	}
 	if len(spec.OnDestroy) > 0 {
 		if st.State != "running" {
-			return fmt.Errorf("on-destroy requires a running VM; cage vm start --id %s first", id)
+			return fmt.Errorf("on-destroy requires a running VM; run cage vm start --id <instance> first")
 		}
 		if err := runHostScripts(id, spec.Workdir, "on-destroy", spec.OnDestroy); err != nil {
 			return err
@@ -568,7 +568,7 @@ func waitReady(id string, runDied <-chan error) error {
 	if last == nil {
 		last = fmt.Errorf("timeout")
 	}
-	return fmt.Errorf("vm %q not ready after %s: %w", id, readyTimeout, last)
+	return fmt.Errorf("VM instance not ready after %s: %w", readyTimeout, last)
 }
 
 func mountVirtiofs(id, shareRoot string) error {

@@ -2,7 +2,6 @@
 package fs
 
 import (
-	"encoding/json"
 	"net/rpc"
 
 	"github.com/hashicorp/go-plugin"
@@ -22,37 +21,30 @@ var Handshake = plugin.HandshakeConfig{
 
 // Path maps a host path to its resolved guest path.
 type Path struct {
-	Host       string
-	Guest      string
-	Path       string
-	Permission string
+	Host       string `json:"host"`
+	Guest      string `json:"guest"`
+	Path       string `json:"path"`
+	Permission string `json:"permission"`
 }
 
-// Context is the resolved filesystem context supplied to every fs plugin.
+// Context is the resolved filesystem context supplied to a client provider.
 type Context struct {
-	ProjectRoot string
-	Workdir     string
-	Layout      string
-	Mounts      []Path
-	Copies      []Path
-	Deny        []string
-	SeatYAML    []byte
+	ProjectRoot string   `json:"projectRoot"`
+	Workdir     string   `json:"workdir"`
+	Layout      string   `json:"layout"`
+	Mounts      []Path   `json:"mounts"`
+	Copies      []Path   `json:"copies"`
+	Deny        []string `json:"deny"`
+	SeatYAML    []byte   `json:"seatYAML"`
 }
 
-// Request and Response carry plugin-owned operation payloads.
-type Request struct {
-	Operation string
-	Payload   json.RawMessage
-}
-type Response struct{ Payload json.RawMessage }
-
-// Plugin is an fs plugin. Cage routes operations without interpreting them.
+// Plugin is the base fs service. Client operations are registered by the
+// plugin binary via client.Register when needed.
 type Plugin interface {
 	Name() string
-	Configure(Context) error
-	Call(Request) (Response, error)
 }
 
+// PluginMap is the go-plugin map for an fs plugin process.
 func PluginMap(p Plugin) map[string]plugin.Plugin {
 	return map[string]plugin.Plugin{PluginName: &RPCPlugin{Impl: p}}
 }
@@ -68,13 +60,7 @@ func (p *RPCPlugin) Client(_ *plugin.MuxBroker, c *rpc.Client) (interface{}, err
 
 type RPCServer struct{ Impl Plugin }
 
-func (s *RPCServer) Name(_ struct{}, out *string) error      { *out = s.Impl.Name(); return nil }
-func (s *RPCServer) Configure(in Context, _ *struct{}) error { return s.Impl.Configure(in) }
-func (s *RPCServer) Call(in Request, out *Response) error {
-	result, err := s.Impl.Call(in)
-	*out = result
-	return err
-}
+func (s *RPCServer) Name(_ struct{}, out *string) error { *out = s.Impl.Name(); return nil }
 
 type RPCClient struct{ client *rpc.Client }
 
@@ -84,12 +70,6 @@ func (c *RPCClient) Name() string {
 		return ""
 	}
 	return out
-}
-func (c *RPCClient) Configure(in Context) error { return c.client.Call("Plugin.Configure", in, nil) }
-func (c *RPCClient) Call(in Request) (Response, error) {
-	var out Response
-	err := c.client.Call("Plugin.Call", in, &out)
-	return out, err
 }
 
 var _ Plugin = (*RPCClient)(nil)

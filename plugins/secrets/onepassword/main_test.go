@@ -6,6 +6,9 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+
+	clientplugin "github.com/appmatter/cage/pkg/plugin/v1/client"
+	secretsplugin "github.com/appmatter/cage/pkg/plugin/v1/secrets"
 )
 
 func TestOnePasswordResolveFakeOp(t *testing.T) {
@@ -82,6 +85,12 @@ func TestConfigureAppDefault(t *testing.T) {
 	}
 	if p.app {
 		t.Fatal("expected app false")
+	}
+}
+
+func TestOnePasswordHasNoClientService(t *testing.T) {
+	if _, ok := secretsplugin.PluginMap(&OnePassword{})[clientplugin.PluginName]; ok {
+		t.Fatal("default secrets plugin exposes client service")
 	}
 }
 

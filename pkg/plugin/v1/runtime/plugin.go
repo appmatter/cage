@@ -32,7 +32,7 @@ type Spec struct {
 	ID           string
 	Image        string
 	Workdir      string
-	Graphics     bool // when true, runtime may show a UI (tart omits --no-graphics)
+	Graphics     bool              // when true, runtime may show a UI (tart omits --no-graphics)
 	Env          map[string]string // runtime.env only — never host os.Environ
 	Mounts       []PathSpec
 	Copies       []PathSpec
@@ -79,10 +79,9 @@ type Backend interface {
 }
 
 // PluginMap is the go-plugin map for a runtime plugin process.
+// Client operations are registered by the plugin binary via client.Register.
 func PluginMap(b Backend) map[string]plugin.Plugin {
-	return map[string]plugin.Plugin{
-		PluginName: &RPCPlugin{Impl: b},
-	}
+	return map[string]plugin.Plugin{PluginName: &RPCPlugin{Impl: b}}
 }
 
 // RPCPlugin is the go-plugin net/rpc adapter for Backend.

@@ -47,7 +47,7 @@ cage bake delete d6c7e0d5d9c33b39        # one or more ids
 cage bake delete --all                   # every bake image + .cage/.cache/images stamps
 ```
 
-Deletes the backend image (Tart VM) and host `.txt` / `.ok` stamps. Does not delete sandbox VMs (`cage-vm`) — use `cage vm delete`.
+Deletes the backend image (Tart VM) and host `.txt` / `.ok` stamps. Does not delete sandbox VM instances — use `cage vm delete --id <instance>`.
 
 ## Related
 

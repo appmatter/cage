@@ -59,12 +59,12 @@ func newBakeDeleteCmd() *cobra.Command {
 				return fmt.Errorf("pass either --all or id(s), not both")
 			}
 
-			_, backendName, err := loadRuntime(cmd, configPath)
+			_, backendName, projectRoot, err := loadRuntimeScope(cmd, configPath)
 			if err != nil {
 				return err
 			}
 
-			return withRuntime(backendName, func(b runtimeplugin.Backend) error {
+			return withRuntime(projectRoot, backendName, func(b runtimeplugin.Backend) error {
 				deleteAll := func() error {
 					ents, err := bake.List(".")
 					if err != nil {

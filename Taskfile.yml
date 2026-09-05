@@ -4,7 +4,7 @@ dotenv: [".env"]
 
 vars:
   CONFIG: '{{.CONFIG | default ".cage/cage.yaml"}}'
-  VM_ID: '{{.VM_ID | default "cage-vm"}}'
+  VM_ID: '{{.VM_ID | default "default"}}'
 
 tasks:
   default:

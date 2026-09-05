@@ -133,8 +133,19 @@ func (d *DenyEntry) UnmarshalYAML(value *yaml.Node) error {
 
 // FSPlugins are installable seats under fs.plugins.
 type FSPlugins struct {
-	Mention        *Mention        `yaml:"mention,omitempty"`
-	SecretsScanner *SecretsScanner `yaml:"secrets_scanner,omitempty"`
+	Mention        *Mention             `yaml:"mention,omitempty"`
+	SecretsScanner *SecretsScanner      `yaml:"secrets_scanner,omitempty"`
+	Seats          map[string]yaml.Node `yaml:"-"`
+}
+
+// UnmarshalYAML preserves every configured fs seat for generic consumers.
+func (p *FSPlugins) UnmarshalYAML(value *yaml.Node) error {
+	var seats map[string]yaml.Node
+	if err := value.Decode(&seats); err != nil {
+		return err
+	}
+	*p = FSPlugins{Seats: seats}
+	return syncFSPluginViews(p)
 }
 
 // PathMap is guest-target → host path spec.
@@ -232,9 +243,20 @@ func (n Network) MITMEnabled() bool {
 
 // NetworkPlugins are installable seats under network.plugins.
 type NetworkPlugins struct {
-	Egress        *Egress          `yaml:"egress,omitempty"`
-	HTTPProxy     *ProtocolProxies `yaml:"http-proxy,omitempty"`
-	PostgresProxy *ProtocolProxies `yaml:"postgres-proxy,omitempty"`
+	Egress        *Egress              `yaml:"egress,omitempty"`
+	HTTPProxy     *ProtocolProxies     `yaml:"http-proxy,omitempty"`
+	PostgresProxy *ProtocolProxies     `yaml:"postgres-proxy,omitempty"`
+	Seats         map[string]yaml.Node `yaml:"-"`
+}
+
+// UnmarshalYAML preserves every configured network seat for generic consumers.
+func (p *NetworkPlugins) UnmarshalYAML(value *yaml.Node) error {
+	var seats map[string]yaml.Node
+	if err := value.Decode(&seats); err != nil {
+		return err
+	}
+	*p = NetworkPlugins{Seats: seats}
+	return syncNetworkPluginViews(p)
 }
 
 // ProtocolProxies is one terminate-stage protocol plugin (http-proxy, postgres-proxy, …).
@@ -429,6 +451,7 @@ type Resolved struct {
 	Copies    []ResolvedPath
 	Deny      []string
 	DenyMasks []string // guest paths to obscure under allowed mounts (exist on host at resolve)
+	FS        FS       // merged fs configuration; used for configured plugin seats
 }
 
 // ResolvedPath is one mount or copy after merge.
@@ -487,6 +510,7 @@ func LoadResolved(projectRoot, path, goos string) (Resolved, error) {
 		Network: merged.Network,
 		Secrets: Secrets{Plugins: mergeSecretPlugins(merged.Secrets.Plugins, nil)},
 		Layout:  merged.FS.Layout,
+		FS:      merged.FS,
 		Deny:    uniqueStrings(denyPaths(merged.FS.Deny)),
 	}
 	r.Mounts, err = resolveMap(root, merged.Runtime.Workdir, merged.FS.Layout.Mode, merged.FS.Mount)
@@ -603,38 +627,8 @@ func mergeFiles(base, over File) File {
 	out.FS.Mount = mergePathMap(base.FS.Mount, over.FS.Mount)
 	out.FS.Copy = mergePathMap(base.FS.Copy, over.FS.Copy)
 	out.FS.Deny = mergeDeny(base.FS.Deny, over.FS.Deny)
-	if over.FS.Plugins.Mention != nil {
-		m := Mention{}
-		if out.FS.Plugins.Mention != nil {
-			m = *out.FS.Plugins.Mention
-		}
-		if over.FS.Plugins.Mention.Package != "" {
-			m.Package = over.FS.Plugins.Mention.Package
-		}
-		if over.FS.Plugins.Mention.Include != nil {
-			m.Include = append([]string{}, over.FS.Plugins.Mention.Include...)
-		}
-		if over.FS.Plugins.Mention.Exclude != nil {
-			m.Exclude = append([]string{}, over.FS.Plugins.Mention.Exclude...)
-		}
-		out.FS.Plugins.Mention = &m
-	}
-	if over.FS.Plugins.SecretsScanner != nil {
-		s := SecretsScanner{}
-		if out.FS.Plugins.SecretsScanner != nil {
-			s = *out.FS.Plugins.SecretsScanner
-		}
-		if over.FS.Plugins.SecretsScanner.Package != "" {
-			s.Package = over.FS.Plugins.SecretsScanner.Package
-		}
-		if over.FS.Plugins.SecretsScanner.OnFind != "" {
-			s.OnFind = over.FS.Plugins.SecretsScanner.OnFind
-		}
-		if over.FS.Plugins.SecretsScanner.Allow != nil {
-			s.Allow = append([]SecretsScannerAllow{}, over.FS.Plugins.SecretsScanner.Allow...)
-		}
-		out.FS.Plugins.SecretsScanner = &s
-	}
+	out.FS.Plugins.Seats = mergePluginNodes(fsPluginNodes(base.FS.Plugins), fsPluginNodes(over.FS.Plugins))
+	_ = syncFSPluginViews(&out.FS.Plugins)
 	out.FS.Hooks = mergeHookEvents(base.FS.Hooks, over.FS.Hooks)
 	out.Runtime.Hooks = mergeHookEvents(base.Runtime.Hooks, over.Runtime.Hooks)
 	out.Secrets.Plugins = mergeSecretPlugins(base.Secrets.Plugins, over.Secrets.Plugins)
@@ -650,35 +644,8 @@ func mergeFiles(base, over File) File {
 		v := *over.Network.Proxy.MITM
 		out.Network.Proxy.MITM = &v
 	}
-	if over.Network.Plugins.Egress != nil {
-		e := Egress{}
-		if out.Network.Plugins.Egress != nil {
-			e = *out.Network.Plugins.Egress
-		}
-		if over.Network.Plugins.Egress.Priority != nil {
-			p := *over.Network.Plugins.Egress.Priority
-			e.Priority = &p
-		}
-		if over.Network.Plugins.Egress.Package != "" {
-			e.Package = over.Network.Plugins.Egress.Package
-		}
-		if over.Network.Plugins.Egress.DenyResponse != nil {
-			d := *over.Network.Plugins.Egress.DenyResponse
-			if e.DenyResponse != nil && over.Network.Plugins.Egress.DenyResponse.Message == "" {
-				d.Message = e.DenyResponse.Message
-			}
-			e.DenyResponse = &d
-		}
-		if over.Network.Plugins.Egress.Allow != nil {
-			e.Allow = append([]EgressRule{}, over.Network.Plugins.Egress.Allow...)
-		}
-		if over.Network.Plugins.Egress.Deny != nil {
-			e.Deny = append([]EgressRule{}, over.Network.Plugins.Egress.Deny...)
-		}
-		out.Network.Plugins.Egress = &e
-	}
-	out.Network.Plugins.HTTPProxy = mergeProtocolProxies(base.Network.Plugins.HTTPProxy, over.Network.Plugins.HTTPProxy)
-	out.Network.Plugins.PostgresProxy = mergeProtocolProxies(base.Network.Plugins.PostgresProxy, over.Network.Plugins.PostgresProxy)
+	out.Network.Plugins.Seats = mergePluginNodes(networkPluginNodes(base.Network.Plugins), networkPluginNodes(over.Network.Plugins))
+	_ = syncNetworkPluginViews(&out.Network.Plugins)
 	out.Network.Hooks = mergeHookEvents(base.Network.Hooks, over.Network.Hooks)
 	return out
 }
