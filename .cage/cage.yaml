@@ -35,10 +35,10 @@ fs:
   # Whole repo → /workspace; .git remounted ro (history/gh reads, no commit/push).
   mount:
     ".": .
-    # .git:
-    #   host: .git
-    #   permission: ro
-    # .tmp: .tmp
+    .git:
+      host: .git
+      permission: ro
+    .tmp: .tmp
   copy: {}
   deny:
     # Host secrets — seed via fs.copy (e.g. .env.example → .env), never mount the real file.

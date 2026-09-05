@@ -34,6 +34,7 @@ Go module at the repo root. Host-side Cage CLI and supervisor.
 │       └── postgres-proxy/
 ├── docs/                             # core only; link to plugin READMEs
 │   ├── project-structure.md
+│   ├── plugins/source-layout.md      # main.go + config.go convention
 │   └── configuration/…
 └── .cage/
 ```
@@ -251,5 +252,6 @@ Unknown plugin ref → fail. Core does **not** invent backends/images/secrets st
 ## Layout notes
 
 - First-party plugins under `plugins/` but install like any other source
+- Source files: [`plugins/source-layout.md`](./plugins/source-layout.md) (`main.go` + `config.go`)
 - Prefer git commit pins for teams; tags for releases
 - Fail closed: no egress allow → no outbound

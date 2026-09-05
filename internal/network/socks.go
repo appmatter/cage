@@ -415,7 +415,7 @@ chmod 0755 /var/lib/cage/shell
 if [ -n "${ALL_PROXY:-}" ]; then
   tmp=$(mktemp)
   if [ -f /etc/environment ]; then
-    grep -Ev '^(ALL_PROXY|all_proxy|HTTP_PROXY|HTTPS_PROXY|http_proxy|https_proxy|NODE_EXTRA_CA_CERTS|CAGE_HTTP_)=' /etc/environment >"$tmp" || true
+    grep -Ev '^(ALL_PROXY|all_proxy|HTTP_PROXY|HTTPS_PROXY|http_proxy|https_proxy|NODE_EXTRA_CA_CERTS|NODE_OPTIONS|CAGE_HTTP_)=' /etc/environment >"$tmp" || true
   fi
   {
     cat "$tmp"
@@ -427,6 +427,9 @@ if [ -n "${ALL_PROXY:-}" ]; then
     echo "https_proxy=$https_proxy"
     if [ -n "${NODE_EXTRA_CA_CERTS:-}" ]; then
       echo "NODE_EXTRA_CA_CERTS=$NODE_EXTRA_CA_CERTS"
+    fi
+    if [ -n "${NODE_OPTIONS:-}" ]; then
+      echo "NODE_OPTIONS=$NODE_OPTIONS"
     fi
     env | grep '^CAGE_HTTP_' || true
   } >/etc/environment
@@ -508,6 +511,11 @@ export HTTP_PROXY=http://$GW:%s
 export HTTPS_PROXY=http://$GW:%s
 export http_proxy=http://$GW:%s
 export https_proxy=http://$GW:%s
+# Node fetch/undici ignores HTTPS_PROXY unless this is set (softnet drops direct egress).
+case " ${NODE_OPTIONS:-} " in
+  *" --use-env-proxy "*) ;;
+  *) export NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--use-env-proxy" ;;
+esac
 if [ -r /var/lib/cage/ca.pem ]; then
   export NODE_EXTRA_CA_CERTS=/var/lib/cage/ca.pem
 fi

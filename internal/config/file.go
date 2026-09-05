@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -22,7 +23,26 @@ type File struct {
 
 // Secrets is the secrets context: installable store seats under plugins.
 type Secrets struct {
-	Plugins map[string]SecretStore `yaml:"plugins"` // seat → store
+	// RefreshInterval is how often proxy-serve re-resolves {{ secrets.* }} in http-proxy
+	// (Go duration, e.g. 2m). Omit = 2m.
+	RefreshInterval string `yaml:"refresh_interval,omitempty"`
+	Plugins         map[string]SecretStore `yaml:"plugins"` // seat → store
+}
+
+// RefreshEvery returns the configured refresh duration, or 0 to mean "use default".
+func (s Secrets) RefreshEvery() (time.Duration, error) {
+	raw := strings.TrimSpace(s.RefreshInterval)
+	if raw == "" {
+		return 0, nil
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil {
+		return 0, fmt.Errorf("secrets.refresh_interval: %w", err)
+	}
+	if d <= 0 {
+		return 0, fmt.Errorf("secrets.refresh_interval must be > 0")
+	}
+	return d, nil
 }
 
 // Runtime is the runtime context: plugins (backend seats), workdir, guest env, hooks.
@@ -181,6 +201,8 @@ type SecretStore struct {
 	Account string            `yaml:"account,omitempty"` // onepassword: op --account
 	App     *bool             `yaml:"app,omitempty"`     // onepassword: desktop CLI integration (omit/true)
 	Region  string            `yaml:"region,omitempty"`  // aws_sm
+	Path    string            `yaml:"path,omitempty"`    // openai-oauth: auth file path
+	Login   string            `yaml:"login,omitempty"`   // openai-oauth: browser|device_code
 	Vars    map[string]string `yaml:"vars"`
 }
 
@@ -485,9 +507,12 @@ func LoadResolved(projectRoot, path, goos string) (Resolved, error) {
 		Path:    abs,
 		Runtime: merged.Runtime,
 		Network: merged.Network,
-		Secrets: Secrets{Plugins: mergeSecretPlugins(merged.Secrets.Plugins, nil)},
-		Layout:  merged.FS.Layout,
-		Deny:    uniqueStrings(denyPaths(merged.FS.Deny)),
+		Secrets: Secrets{
+			Plugins:         mergeSecretPlugins(merged.Secrets.Plugins, nil),
+			RefreshInterval: merged.Secrets.RefreshInterval,
+		},
+		Layout: merged.FS.Layout,
+		Deny:   uniqueStrings(denyPaths(merged.FS.Deny)),
 	}
 	r.Mounts, err = resolveMap(root, merged.Runtime.Workdir, merged.FS.Layout.Mode, merged.FS.Mount)
 	if err != nil {
@@ -638,6 +663,9 @@ func mergeFiles(base, over File) File {
 	out.FS.Hooks = mergeHookEvents(base.FS.Hooks, over.FS.Hooks)
 	out.Runtime.Hooks = mergeHookEvents(base.Runtime.Hooks, over.Runtime.Hooks)
 	out.Secrets.Plugins = mergeSecretPlugins(base.Secrets.Plugins, over.Secrets.Plugins)
+	if over.Secrets.RefreshInterval != "" {
+		out.Secrets.RefreshInterval = over.Secrets.RefreshInterval
+	}
 	if over.Network.Proxy.Disabled != nil {
 		v := *over.Network.Proxy.Disabled
 		out.Network.Proxy.Disabled = &v
@@ -711,6 +739,12 @@ func mergeSecretPlugins(base, over map[string]SecretStore) map[string]SecretStor
 		}
 		if store.Region != "" {
 			cur.Region = store.Region
+		}
+		if store.Path != "" {
+			cur.Path = store.Path
+		}
+		if store.Login != "" {
+			cur.Login = store.Login
 		}
 		if store.Vars != nil {
 			if cur.Vars == nil {

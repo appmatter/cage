@@ -63,4 +63,8 @@ Set `env.*` keys on the **host** before `cage vm start`, or configure `secrets.p
 - CA: `.cage/.cache/ca/{ca.pem,ca.key}` (working tree; key never enters guest)
 - Proxy ports: `.cage/run/<id>/proxy.json` (`http_port`, SOCKS `port`)
 - Legacy listen: `.cage/run/<id>/http-proxy.json`
-- Egress/config hot-reload re-Configures headers; **listen ports stay put** until proxy restart
+- Secret templates (`{{ secrets.* }}`) are re-resolved by proxy-serve on each
+  prepare after `secrets.refresh_interval` (default `2m`) and http-proxy is
+  re-Configured (OAuth / `op read` refresh); **listen ports stay put** until
+  proxy restart
+- Egress allowlist hot-reloads from cage config independently

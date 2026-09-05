@@ -142,6 +142,9 @@ func TestGuestProxyEnvScript(t *testing.T) {
 	if !strings.Contains(s, "http-proxy.env") {
 		t.Fatalf("expected http-proxy.env hook: %q", s)
 	}
+	if !strings.Contains(s, "--use-env-proxy") {
+		t.Fatalf("expected NODE_OPTIONS --use-env-proxy: %q", s)
+	}
 	inst := GuestProxyInstallScript(1080)
 	if !strings.Contains(inst, "/etc/profile.d/cage-proxy.sh") ||
 		!strings.Contains(inst, "/etc/environment") ||

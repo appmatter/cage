@@ -142,6 +142,25 @@ func newProxyServeCmd() *cobra.Command {
 						return err
 					}
 					closers = append(closers, closer)
+					// Mid-session: re-resolve templates + re-Configure so OAuth access
+					// tokens refresh without restarting the VM. Detached path prefers
+					// silent refresh; openai-oauth may still open a browser on refresh
+					// failure when login: browser.
+					if secrets.ContainsTemplate(string(raw)) && configPath != "" {
+						_ = os.Setenv("CAGE_SECRETS_INTERACTIVE", "0")
+						rt := &secrets.RefreshingTerminate{
+							Inner:        term,
+							ProjectRoot:  projectRoot,
+							ConfigPath:   configPath,
+							TemplateYAML: raw,
+						}
+						if r, err := config.LoadResolved(projectRoot, configPath, runtime.GOOS); err == nil {
+							if d, err := r.Secrets.RefreshEvery(); err == nil && d > 0 {
+								rt.Interval = d
+							}
+						}
+						term = rt
+					}
 					opts.HTTPProxy = &network.HTTPTerminate{Terminate: term}
 					opts.Terminate = term
 					hostMap, err := network.ParseHostEndpointMap(raw)

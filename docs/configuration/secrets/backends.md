@@ -27,6 +27,7 @@ OS stores are separate plugins — APIs differ; wrong backend for the host fails
 
 ```yaml
 secrets:
+  refresh_interval: 2m # omit = 2m; proxy-serve re-resolve of {{ secrets.* }}
   plugins:
     <seat>:
       plugin: onepassword # omit when seat == install name

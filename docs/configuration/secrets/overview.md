@@ -12,6 +12,7 @@ Named stores under `secrets.plugins.<seat>`. Resolved on the host. Config holds 
 
 ```yaml
 secrets:
+  refresh_interval: 2m # omit = 2m; how often proxy re-resolves {{ secrets.* }}
   plugins:
     <seat>:
       plugin: onepassword # omit when seat name == install name

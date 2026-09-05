@@ -58,30 +58,41 @@ flowchart TD
   proxy -->|"Bearer + ChatGPT-Account-ID"| codex["chatgpt.com<br/>/backend-api/codex"]
 
   subgraph mid["While VM is running"]
-    tick["proxy-serve refresh loop"] --> reresolve["Resolve again<br/>refresh-only"]
-    reresolve --> reconf["Terminate.Configure"]
+    tick["proxy-serve refresh loop"] --> reresolve["Resolve again"]
+    reresolve --> refreshOk{"refresh OK?"}
+    refreshOk -->|yes| reconf["Terminate.Configure"]
+    refreshOk -->|no + login browser| relogin["Browser :1455<br/>even if detached"]
+    refreshOk -->|no + device_code| fail["Fail until foreground start"]
+    relogin --> reconf
     reconf --> proxy
   end
 ```
+
+
+
+
 
 ## Token Refresh
 
 - At start, Cage resolves secrets once (interactive login allowed).
 
 While the proxy runs, it periodically re-resolves templates and re-Configures
-http-proxy. `openai-oauth` refreshes the access token from the stored refresh
-token when it is within the 5-minute expiry skew. Detached proxy sets
-`CAGE_SECRETS_INTERACTIVE=0` so mid-session resolve never opens a browser — if
-refresh fails, requests fail until you re-login on the next foreground
-`cage vm start`.
+http-proxy (`secrets.refresh_interval`, default `2m`). `openai-oauth` refreshes
+the access token from the stored refresh token when it is within the 5-minute
+expiry skew. Detached proxy sets `CAGE_SECRETS_INTERACTIVE=0`: silent refresh
+still runs; if refresh fails and `login: browser` (default), the proxy opens the
+browser callback again. With `login: device_code`, re-login stays foreground-only
+(`cage vm start`) — there is nowhere to show the code.
 
 ## Guest (pi)
 
 Use provider `openai-codex`, not `openai` pointed at the Codex URL.
 
+
 | Wrong                                               | Right                                            |
 | --------------------------------------------------- | ------------------------------------------------ |
 | `providers.openai` + `baseUrl: …/backend-api/codex` | `providers.openai-codex` (built-in models / API) |
+
 
 Pi’s Platform `openai-responses` client sends fields Codex rejects (`max_output_tokens`, `prompt_cache_retention`, …). The OpenAI SDK often surfaces that as `400 status code (no body)`.
 
@@ -108,3 +119,4 @@ See `.cage/plugins/runtime/pi-agent/` (synced into the guest on start).
 - Never exports `refresh_token` through vars.
 - Upstream is the Codex ChatGPT backend, not Platform `api.openai.com` API keys.
 - First login needs a local browser (port 1455) or `login: device_code` for headless.
+
