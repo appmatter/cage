@@ -1,8 +1,7 @@
 {
   "providers": {
-    "openai": {
-      "baseUrl": "https://api.openai.com/v1",
-      "apiKey": "fake-key-for-agent"
+    "openai-codex": {
+      "apiKey": "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9hY2NvdW50X2lkIjoiY2FnZS1wbGFjZWhvbGRlciJ9fQ.cage"
     },
     "anthropic": {
       "baseUrl": "https://api.anthropic.com",
