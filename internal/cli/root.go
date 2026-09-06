@@ -17,6 +17,6 @@ func NewRoot() *cobra.Command {
 			cmd.SetContext(host.WithContext(cmd.Context(), host.Current()))
 		},
 	}
-	root.AddCommand(newInitCmd(), newConfigCmd(), newPluginCmd(), newVMCmd(), newBakeCmd(), newCompletionCmd(), newProxyServeCmd())
+	root.AddCommand(newInitCmd(), newConfigCmd(), newPluginCmd(), newVMCmd(), newBakeCmd(), newCompletionCmd(), newProxyServeCmd(), newContextServeCmd())
 	return root
 }

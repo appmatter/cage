@@ -15,6 +15,9 @@ type LoadedSeats struct {
 }
 
 func (s *LoadedSeats) Close() {
+	if s == nil {
+		return
+	}
 	for _, close := range s.close {
 		close()
 	}
@@ -23,8 +26,8 @@ func (s *LoadedSeats) Close() {
 type capabilityLoader func(string, string, config.ConfiguredSeat) (plugin.Capability, bool, func(), error)
 
 // LoadSeats discovers optional capabilities from the active resolved config.
-func LoadSeats(projectRoot string, r config.Resolved) *LoadedSeats {
-	return loadSeats(projectRoot, r, configuredCapability)
+func LoadSeats(projectRoot string, r config.Resolved, meta VMMeta) *LoadedSeats {
+	return loadSeats(projectRoot, r, meta, configuredCapability)
 }
 
 func configuredCapability(projectRoot, context string, seat config.ConfiguredSeat) (plugin.Capability, bool, func(), error) {
@@ -61,7 +64,7 @@ func configuredCapability(projectRoot, context string, seat config.ConfiguredSea
 	return loaded.Capability, true, loaded.Close, nil
 }
 
-func loadSeats(projectRoot string, r config.Resolved, load capabilityLoader) *LoadedSeats {
+func loadSeats(projectRoot string, r config.Resolved, meta VMMeta, load capabilityLoader) *LoadedSeats {
 	out := &LoadedSeats{Seats: map[string]map[string]Seat{}}
 	add := func(context string, seat config.ConfiguredSeat, resolved plugin.Context) {
 		if out.Seats[context] == nil {
@@ -80,25 +83,25 @@ func loadSeats(projectRoot string, r config.Resolved, load capabilityLoader) *Lo
 		out.Seats[context][seat.Name] = Seat{Context: resolved, Plugin: capability}
 	}
 	for _, seat := range r.Runtime.PluginSeats() {
-		context, err := RuntimeContext(r, seat.YAML)
+		context, err := RuntimeContext(r, seat.YAML, meta)
 		if err == nil {
 			add("runtime", seat, context)
 		}
 	}
 	for _, seat := range r.FS.PluginSeats() {
-		context, err := FSContext(projectRoot, r, seat.YAML)
+		context, err := FSContext(projectRoot, r, seat.YAML, meta)
 		if err == nil {
 			add("fs", seat, context)
 		}
 	}
 	for _, seat := range r.Network.PluginSeats() {
-		context, err := NetworkContext(r, seat.YAML)
+		context, err := NetworkContext(r, seat.YAML, meta)
 		if err == nil {
 			add("network", seat, context)
 		}
 	}
 	for _, seat := range r.Secrets.PluginSeats() {
-		context, err := SecretsContext(seat.YAML)
+		context, err := SecretsContext(seat.YAML, meta)
 		if err == nil {
 			add("secrets", seat, context)
 		}

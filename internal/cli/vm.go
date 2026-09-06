@@ -1,14 +1,10 @@
 package cli
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
-	"strings"
 
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
@@ -22,6 +18,7 @@ import (
 	"github.com/appmatter/cage/internal/pluginhost"
 	"github.com/appmatter/cage/internal/secrets"
 	"github.com/appmatter/cage/internal/termlog"
+	"github.com/appmatter/cage/internal/vminstance"
 	runtimeplugin "github.com/appmatter/cage/pkg/plugin/v1/runtime"
 )
 
@@ -30,6 +27,7 @@ func newVMCmd() *cobra.Command {
 		Use:   "vm",
 		Short: "Manage sandbox VMs via the runtime plugin",
 	}
+	addProjectFlag(cmd)
 	cmd.AddCommand(newVMCreateCmd(), newVMStartCmd(), newVMStopCmd(), newVMStatusCmd(), newVMDeleteCmd(), newVMExecCmd(), newVMLogsCmd())
 	return cmd
 }
@@ -180,7 +178,7 @@ func newVMStopCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			instanceID, id, err := resolveVMInstance(projectRoot, r.Path, id)
+			instanceID, id, err := vminstance.Resolve(projectRoot, r.Path, id)
 			if err != nil {
 				return err
 			}
@@ -213,7 +211,7 @@ func newVMStatusCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			instanceID, id, err := resolveVMInstance(projectRoot, r.Path, id)
+			instanceID, id, err := vminstance.Resolve(projectRoot, r.Path, id)
 			if err != nil {
 				return err
 			}
@@ -281,7 +279,7 @@ func newVMExecCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			_, id, err = resolveVMInstance(projectRoot, r.Path, id)
+			_, id, err = vminstance.Resolve(projectRoot, r.Path, id)
 			if err != nil {
 				return err
 			}
@@ -340,7 +338,7 @@ func newVMLogsCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			_, id, err = resolveVMInstance(projectRoot, r.Path, id)
+			_, id, err = vminstance.Resolve(projectRoot, r.Path, id)
 			if err != nil {
 				return err
 			}
@@ -361,13 +359,14 @@ func loadSpec(cmd *cobra.Command, configPath, id string) (runtimeplugin.Spec, st
 	if err != nil {
 		return runtimeplugin.Spec{}, "", "", "", config.Resolved{}, err
 	}
-	instanceID, backendVMID, err := resolveVMInstance(projectRoot, r.Path, id)
+	instanceID, backendVMID, err := vminstance.Resolve(projectRoot, r.Path, id)
 	if err != nil {
 		return runtimeplugin.Spec{}, "", "", "", config.Resolved{}, err
 	}
 	spec := runtimeplugin.Spec{
-		ID:        backendVMID,
-		Image:     r.Runtime.Image,
+		ID:          backendVMID,
+		ProjectRoot: projectRoot,
+		Image:       r.Runtime.Image,
 		Workdir:   r.Runtime.Workdir,
 		Graphics:  r.Runtime.Graphics,
 		Env:       copyStringMap(r.Runtime.Env),
@@ -588,13 +587,20 @@ func probeSoftnetDrop(projectRoot, vmID string, b runtimeplugin.Backend) {
 	termlog.CLI("%s", network.FormatTrafficHuman(ev))
 }
 
-func loadRuntime(cmd *cobra.Command, configPath string) (config.Resolved, string, error) {
-	r, backend, _, err := loadRuntimeScope(cmd, configPath)
-	return r, backend, err
+func addProjectFlag(cmd *cobra.Command) {
+	cmd.PersistentFlags().String("project", ".", "project root")
+}
+
+func absProjectRoot(cmd *cobra.Command) (string, error) {
+	root := "."
+	if f := cmd.Flag("project"); f != nil {
+		root = f.Value.String()
+	}
+	return filepath.Abs(root)
 }
 
 func loadRuntimeScope(cmd *cobra.Command, configPath string) (config.Resolved, string, string, error) {
-	projectRoot, err := filepath.Abs(".")
+	projectRoot, err := absProjectRoot(cmd)
 	if err != nil {
 		return config.Resolved{}, "", "", err
 	}
@@ -615,40 +621,10 @@ func withRuntime(projectRoot, backendName string, fn func(runtimeplugin.Backend)
 	if err != nil {
 		return err
 	}
-	client, err := pluginhost.DispenseRuntime(cmdPath)
+	client, err := pluginhost.DispenseRuntime(cmdPath, projectRoot)
 	if err != nil {
 		return err
 	}
 	defer client.Close()
 	return fn(client.Backend)
-}
-
-var validInstanceID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`)
-
-func resolveInstanceID(id string) (string, error) {
-	id = strings.TrimSpace(id)
-	if id == "" {
-		return "default", nil
-	}
-	if !validInstanceID.MatchString(id) {
-		return "", fmt.Errorf("invalid VM instance ID %q", id)
-	}
-	return id, nil
-}
-
-func resolveVMInstance(projectRoot, configPath, id string) (string, string, error) {
-	instanceID, err := resolveInstanceID(id)
-	if err != nil {
-		return "", "", err
-	}
-	projectRoot, err = filepath.Abs(projectRoot)
-	if err != nil {
-		return "", "", err
-	}
-	configPath, err = filepath.Abs(configPath)
-	if err != nil {
-		return "", "", err
-	}
-	sum := sha256.Sum256([]byte(projectRoot + "\x00" + configPath + "\x00" + instanceID))
-	return instanceID, "cage-" + hex.EncodeToString(sum[:12]), nil
 }

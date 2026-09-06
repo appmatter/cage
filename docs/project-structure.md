@@ -34,6 +34,7 @@ Go module at the repo root. Host-side Cage CLI and supervisor.
 │       └── postgres-proxy/
 ├── docs/                             # core only; link to plugin READMEs
 │   ├── project-structure.md
+│   ├── core/
 │   └── configuration/…
 └── .cage/
 ```
@@ -64,6 +65,8 @@ Same `runtime.plugins` map; stage is in the plugin manifest (not a nested config
 Order on up: **`before_bake`** → bake/cache resolve → backend Start (mounts/copies → seat `on-create` once → `on-start`) → env inject → harness Ensure/Start. On down: harness Stop → seat `on-destroy` (if set; VM must be running) → backend Stop/Delete. Core owns no harness-specific knowledge — only the contract plus bake hashing/cache. Seat lifecycle scripts are **plugin-owned** (bash vs powershell); heavy installs belong in bake via `before_bake`.
 
 Backend plugin contract (GOOS-agnostic, including `ExtraRunArgs` / host proxy): [runtime-backend](./plugins/runtime-backend.md). Conformance tests per backend: [runtime-backend-conformance](./plugins/runtime-backend-conformance.md).
+
+Host-only per-project client HTTP API (config list, VM list/lifecycle, plugin call): [client-context](./core/client-context.md).
 
 ### `network.traffic` pipeline
 

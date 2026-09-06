@@ -60,7 +60,7 @@ func TestIntegrationRuntimeEnvSecrets(t *testing.T) {
 		_ = backend.Stop(id)
 		_ = backend.Delete(runtimeplugin.Spec{ID: id})
 	}()
-	spec := runtimeplugin.Spec{ID: id, Image: image, Workdir: "/workspace"}
+	spec := runtimeplugin.Spec{ID: id, ProjectRoot: project, Image: image, Workdir: "/workspace"}
 	if err := backend.Create(spec); err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -68,11 +68,11 @@ func TestIntegrationRuntimeEnvSecrets(t *testing.T) {
 		t.Fatalf("start: %v", err)
 	}
 
-	script := guestenv.InstallScript(env)
-	cmd := exec.Command("tart", "exec", id, "sudo", "sh", "-s")
-	cmd.Stdin = strings.NewReader(script)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("install runtime.env: %v\n%s", err, out)
+	if err := backend.Exec(id, runtimeplugin.ExecOpts{
+		Argv:  []string{"sudo", "sh", "-s"},
+		Stdin: []byte(guestenv.InstallScript(env)),
+	}); err != nil {
+		t.Fatalf("install runtime.env: %v", err)
 	}
 
 	got, err := tartExecOut(id, "bash", "-lc", "set -a; . /var/lib/cage/runtime.env; set +a; printf '%s' \"$DEMO_SECRET\"")

@@ -36,6 +36,8 @@ type Context struct {
 	Copies      []Path   `json:"copies"`
 	Deny        []string `json:"deny"`
 	SeatYAML    []byte   `json:"seatYAML"`
+	InstanceID  string   `json:"instanceID,omitempty"`
+	BackendVMID string   `json:"backendVMID,omitempty"`
 }
 
 // Plugin is the base fs service. Client operations are registered by the

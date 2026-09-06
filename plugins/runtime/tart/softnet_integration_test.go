@@ -35,9 +35,10 @@ func TestIntegrationSoftnetHostOnly(t *testing.T) {
 
 	id := fmt.Sprintf("cage-net-it-%d", os.Getpid())
 	spec := runtimeplugin.Spec{
-		ID:      id,
-		Image:   image,
-		Workdir: "/workspace",
+		ID:          id,
+		ProjectRoot: t.TempDir(),
+		Image:       image,
+		Workdir:     "/workspace",
 		ExtraRunArgs: []string{
 			"--net-softnet-block=0.0.0.0/0",
 			"--net-softnet-allow=@host",

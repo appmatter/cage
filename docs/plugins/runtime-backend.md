@@ -8,26 +8,27 @@ Harness plugins (`pi-agent`, …) are a different stage — see [project structu
 
 Implement `runtime.Backend`:
 
-| Method | Role |
-| --- | --- |
-| `Name` | Short plugin id (e.g. `tart`) |
-| `Create` | Provision from `Spec.Image` (base or derived bake id) |
-| `Start` | Bring guest up; apply mounts/copies; run seat lifecycle scripts |
-| `Stop` / `Status` / `Delete` | Lifecycle |
-| `Exec` | Run argv in the guest (stdin optional). Required for harness, proxy env inject, seat scripts |
-| `Bake` | Materialize derived image from base + scripts if missing; no-op on cache hit. See [runtime-image-bake](./runtime-image-bake.md) |
+| Method                       | Role                                                                                                                            |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `Name`                       | Short plugin id (e.g. `tart`)                                                                                                   |
+| `Create`                     | Provision from `Spec.Image` (base or derived bake id)                                                                           |
+| `Start`                      | Bring guest up; apply mounts/copies; run seat lifecycle scripts                                                                 |
+| `Stop` / `Status` / `Delete` | Lifecycle                                                                                                                       |
+| `Exec`                       | Run argv in the guest (stdin optional). Required for harness, proxy env inject, seat scripts                                    |
+| `Bake`                       | Materialize derived image from base + scripts if missing; no-op on cache hit. See [runtime-image-bake](./runtime-image-bake.md) |
 
 Manifest: `context: runtime`, `stage: backend`. No `priority` in the manifest — operators set that in config.
 
 ## `Spec` fields the plugin must honor
 
-| Field | Plugin duty |
-| --- | --- |
-| `ID`, `Image`, `Workdir` | Identity and guest cwd for scripts |
-| `Graphics` | UI vs headless when the backend supports it |
-| `Mounts` / `Copies` | Expose or copy into the guest on `Start` |
-| `OnCreate` / `OnStart` / `OnDestroy` | Host script paths; plugin chooses interpreter (`sh`, `powershell`, …) |
-| `ExtraRunArgs` | **Append unchanged** to the backend’s run/launch command. Empty = none |
+| Field                                | Plugin duty                                                            |
+| ------------------------------------ | ---------------------------------------------------------------------- |
+| `ID`, `Image`, `Workdir`             | Identity and guest cwd for scripts                                     |
+| `ProjectRoot`                        | Host project; persist backend state here, not process cwd              |
+| `Graphics`                           | UI vs headless when the backend supports it                            |
+| `Mounts` / `Copies`                  | Expose or copy into the guest on `Start`                               |
+| `OnCreate` / `OnStart` / `OnDestroy` | Host script paths; plugin chooses interpreter (`sh`, `powershell`, …)  |
+| `ExtraRunArgs`                       | **Append unchanged** to the backend’s run/launch command. Empty = none |
 
 Do not invent Cage network policy inside the plugin. Core owns allowlists and the host proxy.
 

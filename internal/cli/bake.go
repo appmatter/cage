@@ -16,6 +16,7 @@ func newBakeCmd() *cobra.Command {
 		Use:   "bake",
 		Short: "Manage derived bake images (hash cache + backend image)",
 	}
+	addProjectFlag(cmd)
 	cmd.AddCommand(newBakeListCmd(), newBakeDeleteCmd())
 	return cmd
 }
@@ -25,7 +26,11 @@ func newBakeListCmd() *cobra.Command {
 		Use:   "list",
 		Short: "List derived bake images and host hash stamps",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ents, err := bake.List(".")
+			root, err := absProjectRoot(cmd)
+			if err != nil {
+				return err
+			}
+			ents, err := bake.List(root)
 			if err != nil {
 				return err
 			}
@@ -66,7 +71,7 @@ func newBakeDeleteCmd() *cobra.Command {
 
 			return withRuntime(projectRoot, backendName, func(b runtimeplugin.Backend) error {
 				deleteAll := func() error {
-					ents, err := bake.List(".")
+					ents, err := bake.List(projectRoot)
 					if err != nil {
 						return err
 					}
@@ -76,7 +81,7 @@ func newBakeDeleteCmd() *cobra.Command {
 					}
 					for _, e := range ents {
 						termlog.CLI("delete bake %s (%s)", e.Short, e.Image)
-						if err := bake.RemoveDerived(".", e, b); err != nil {
+						if err := bake.RemoveDerived(projectRoot, e, b); err != nil {
 							return err
 						}
 					}
@@ -91,21 +96,21 @@ func newBakeDeleteCmd() *cobra.Command {
 				var targets []bake.Entry
 				if len(args) > 0 {
 					for _, a := range args {
-						e, err := bake.ResolveEntry(".", a)
+						e, err := bake.ResolveEntry(projectRoot, a)
 						if err != nil {
 							return err
 						}
 						targets = append(targets, e)
 					}
 				} else {
-					targets, err = selectBakeEntries(".")
+					targets, err = selectBakeEntries(projectRoot)
 					if err != nil {
 						return err
 					}
 				}
 				for _, e := range targets {
 					termlog.CLI("delete bake %s (%s)", e.Short, e.Image)
-					if err := bake.RemoveDerived(".", e, b); err != nil {
+					if err := bake.RemoveDerived(projectRoot, e, b); err != nil {
 						return err
 					}
 					termlog.CLI("deleted %s", e.Image)

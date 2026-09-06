@@ -30,6 +30,7 @@ type PathSpec struct {
 // Spec describes a sandbox instance.
 type Spec struct {
 	ID           string
+	ProjectRoot  string // host project; backend state (e.g. image stamps) goes here, not cwd
 	Image        string
 	Workdir      string
 	Graphics     bool              // when true, runtime may show a UI (tart omits --no-graphics)

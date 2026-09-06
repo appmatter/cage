@@ -44,9 +44,10 @@ func TestIntegrationMountAndCopy(t *testing.T) {
 	}
 
 	spec := runtimeplugin.Spec{
-		ID:      id,
-		Image:   image,
-		Workdir: "/workspace",
+		ID:          id,
+		ProjectRoot: root,
+		Image:       image,
+		Workdir:     "/workspace",
 		Mounts: []runtimeplugin.PathSpec{
 			{Host: mountHost, Guest: "/workspace/src", Permission: "rw"},
 		},

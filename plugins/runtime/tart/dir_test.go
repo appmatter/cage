@@ -9,6 +9,7 @@ import (
 	runtimeplugin "github.com/appmatter/cage/pkg/plugin/v1/runtime"
 )
 
+// tart run --dir flags: share name, host path, :ro when the mount is ro.
 func TestDirArgs(t *testing.T) {
 	got := dirArgs([]runtimeplugin.PathSpec{
 		{Host: "/host/src", Guest: "/workspace/src", Permission: "rw"},
@@ -28,6 +29,7 @@ func TestDirArgs(t *testing.T) {
 	}
 }
 
+// A nested ro mount under a rw parent keeps its own host share with :ro.
 func TestPartitionMountsNestedRO(t *testing.T) {
 	top, nestedRO, nestedRW, err := partitionMounts([]runtimeplugin.PathSpec{
 		{Host: "/repo", Guest: "/workspace", Permission: "rw"},
@@ -53,6 +55,7 @@ func TestPartitionMountsNestedRO(t *testing.T) {
 	}
 }
 
+// A nested rw mount under a ro parent is not given :ro.
 func TestPartitionMountsNestedRW(t *testing.T) {
 	top, nestedRO, nestedRW, err := partitionMounts([]runtimeplugin.PathSpec{
 		{Host: "/repo", Guest: "/workspace", Permission: "ro"},
@@ -80,6 +83,7 @@ func TestPartitionMountsNestedRW(t *testing.T) {
 	}
 }
 
+// Nested guest paths only; equal or prefix-sibling paths are not "under".
 func TestGuestUnder(t *testing.T) {
 	if !guestUnder("/workspace/.git", "/workspace") {
 		t.Fatal("expected .git under workspace")
@@ -92,6 +96,7 @@ func TestGuestUnder(t *testing.T) {
 	}
 }
 
+// Share names are stable, distinct for different guest paths, and safe for /.
 func TestShareName(t *testing.T) {
 	a := shareName("/workspace/a.b")
 	b := shareName("/workspace/a/b")
@@ -112,6 +117,7 @@ func TestShareName(t *testing.T) {
 	}
 }
 
+// Missing host mount paths fail closed before tart run.
 func TestCheckMountHosts(t *testing.T) {
 	root := t.TempDir()
 	ok := filepath.Join(root, "ok")
@@ -127,6 +133,7 @@ func TestCheckMountHosts(t *testing.T) {
 	}
 }
 
+// ExtraRunArgs (softnet) sit on the run line before --dir, unchanged.
 func TestExtraRunArgsAppended(t *testing.T) {
 	extra := []string{"--net-softnet-block=0.0.0.0/0", "--net-softnet-allow=@host"}
 	dirs := dirArgs([]runtimeplugin.PathSpec{{Host: "/h", Guest: "/workspace/x"}})
@@ -147,6 +154,7 @@ func TestExtraRunArgsAppended(t *testing.T) {
 	}
 }
 
+// Guest copy file mode: rw/default 0644, ro 0444.
 func TestCopyMode(t *testing.T) {
 	if got := copyMode("rw"); got != "0644" {
 		t.Fatalf("rw=%q", got)
@@ -159,14 +167,40 @@ func TestCopyMode(t *testing.T) {
 	}
 }
 
+// No required ExtraRunArgs means a running VM already matches.
 func TestTartRunHasArgsEmpty(t *testing.T) {
 	if !tartRunHasArgs("any", nil) {
 		t.Fatal("empty want should match")
 	}
 }
 
+// Image stamps live under Spec.ProjectRoot. Empty root must not write to cwd.
+func TestImageStampUsesProjectRoot(t *testing.T) {
+	root := t.TempDir()
+	id := "cage-stamp-it"
+	if err := writeImageStamp(root, id, "ubuntu"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := readImageStamp(root, id)
+	if err != nil || got != "ubuntu" {
+		t.Fatalf("read: %q %v", got, err)
+	}
+	if _, err := os.Stat(filepath.Join(".cage", "run", id, "image")); err == nil {
+		t.Fatal("wrote stamp relative to cwd")
+	}
+	if err := writeImageStamp("", id, "ubuntu"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(".cage", "run", id, "image")); err == nil {
+		t.Fatal("empty project root wrote stamp relative to cwd")
+	}
+	if err := os.Remove(imageStampPath(root, id)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Deny masks skip guest root; guestClean leaves "/" unchanged.
 func TestApplyDenyMasksSkipsRoot(t *testing.T) {
-	// applyDenyMasks ignores "/" / ""; exercised via guestClean + early continue.
 	if guestClean("/") != "/" {
 		t.Fatal(guestClean("/"))
 	}

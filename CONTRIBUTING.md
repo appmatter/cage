@@ -29,7 +29,7 @@ task test:integration # live Tart/runtime ITs (darwin; skips if tart/image missi
 task test:network     # headless proxy+softnet smoke (skips if tart/softnet/privileges missing)
 ```
 
-Or: `go test -tags integration ./plugins/runtime/...` / `go test -tags network ./internal/network/`.
+Or: `go test -tags integration ./plugins/runtime/... ./internal/contextapi/` / `go test -tags network ./internal/network/`.
 
 Manual format:
 

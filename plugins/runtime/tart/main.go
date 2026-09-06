@@ -56,7 +56,7 @@ func (t *Tart) Create(spec runtimeplugin.Spec) error {
 		return err
 	}
 	if exists {
-		if from, err := readImageStamp(spec.ID); err == nil && from != "" && from != spec.Image {
+		if from, err := readImageStamp(spec.ProjectRoot, spec.ID); err == nil && from != "" && from != spec.Image {
 			return fmt.Errorf("VM instance exists from image %q but config wants %q — run cage vm delete --id <instance> first",
 				from, spec.Image)
 		}
@@ -71,7 +71,7 @@ func (t *Tart) Create(spec runtimeplugin.Spec) error {
 	if err := runTart("clone", spec.Image, spec.ID); err != nil {
 		return err
 	}
-	return writeImageStamp(spec.ID, spec.Image)
+	return writeImageStamp(spec.ProjectRoot, spec.ID, spec.Image)
 }
 
 func (t *Tart) Start(spec runtimeplugin.Spec) error {
@@ -297,7 +297,13 @@ func (t *Tart) Delete(spec runtimeplugin.Spec) error {
 			return err
 		}
 	}
-	return runTart("delete", id)
+	if err := runTart("delete", id); err != nil {
+		return err
+	}
+	if path := imageStampPath(spec.ProjectRoot, id); path != "" {
+		_ = os.Remove(path)
+	}
+	return nil
 }
 
 func (t *Tart) Exec(id string, opts runtimeplugin.ExecOpts) error {
@@ -846,20 +852,30 @@ func ensureTart() error {
 	return nil
 }
 
-func imageStampPath(id string) string {
-	return filepath.Join(".cage", "run", id, "image")
+func imageStampPath(projectRoot, id string) string {
+	if projectRoot == "" || id == "" {
+		return ""
+	}
+	return filepath.Join(projectRoot, ".cage", "run", id, "image")
 }
 
-func writeImageStamp(id, image string) error {
-	dir := filepath.Join(".cage", "run", id)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+func writeImageStamp(projectRoot, id, image string) error {
+	path := imageStampPath(projectRoot, id)
+	if path == "" {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(imageStampPath(id), []byte(image+"\n"), 0o644)
+	return os.WriteFile(path, []byte(image+"\n"), 0o644)
 }
 
-func readImageStamp(id string) (string, error) {
-	b, err := os.ReadFile(imageStampPath(id))
+func readImageStamp(projectRoot, id string) (string, error) {
+	path := imageStampPath(projectRoot, id)
+	if path == "" {
+		return "", os.ErrNotExist
+	}
+	b, err := os.ReadFile(path)
 	if err != nil {
 		return "", err
 	}

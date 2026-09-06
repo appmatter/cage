@@ -224,8 +224,12 @@ type FSClient struct {
 }
 
 // DispenseRuntime launches a runtime plugin binary and returns Backend.
-func DispenseRuntime(cmdPath string) (*Client, error) {
+// projectRoot becomes the plugin process cwd so relative .cage paths stay in-project.
+func DispenseRuntime(cmdPath, projectRoot string) (*Client, error) {
 	cmd := exec.Command(cmdPath)
+	if projectRoot != "" {
+		cmd.Dir = projectRoot
+	}
 	cmd.Stdin = os.Stdin // so interactive Exec (TTY) can attach the host terminal
 	client := plugin.NewClient(&plugin.ClientConfig{
 		HandshakeConfig: runtimeplugin.Handshake,

@@ -118,7 +118,7 @@ tasks:
   test:integration:
     desc: Live ITs (Tart/runtime + host http-proxy + runtime.env secrets); skips when tools/image missing
     cmds:
-      - go test -tags integration ./plugins/runtime/... ./internal/network/ -count=1 -v
+      - go test -tags integration ./plugins/runtime/... ./internal/network/ ./internal/contextapi/ -count=1 -v
 
   test:network:
     desc: Headless proxy+softnet smoke (scripts/test-network.sh); skips if tart/softnet missing
