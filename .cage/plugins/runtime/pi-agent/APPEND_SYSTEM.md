@@ -12,6 +12,10 @@ automatically.
 4. **Verify** — Before finishing, run the relevant tests (default `go test ./...`).
    If the full suite fails elsewhere, still pass every package you added or changed
    and name them. Paste or clearly report command output — do not invent “Pass”.
+   Guest tests run on Linux. They do not verify Darwin or Windows. If you add or
+   change another GOOS (`//go:build` or `_*os.go`), that OS is unverified:
+   `Status: BLOCKED` for it. Do not guess kernel structs or syscall layouts; use
+   `golang.org/x/sys`.
 5. **Evidence** — Final reply for implementation work:
 
 ```text
@@ -24,6 +28,7 @@ Validation
 - <command> → pass | fail (<note>)
 ```
 
+If another GOOS is unverified, `Status: BLOCKED` and name that OS.
 No evidence table, unmet required Tests:/Docs: bullets, or unverified claims →
 keep working or `BLOCKED`. Never summarize as done without proof.
 
