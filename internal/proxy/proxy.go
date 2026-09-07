@@ -7,15 +7,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
-	"strings"
-	"syscall"
 	"time"
 )
 
 // State is written under .cage/run/<id>/proxy.json.
 type State struct {
 	PID            int      `json:"pid"`
+	StartTime      string   `json:"start_time"`
 	Port           int      `json:"port"`      // SOCKS5
 	HTTPPort       int      `json:"http_port"` // HTTP CONNECT (+ MITM)
 	BindHost       string   `json:"bind_host,omitempty"`
@@ -215,7 +213,12 @@ func Start(projectRoot, vmID, cageBin string, opts StartOptions) (State, error) 
 	cmd.Stdin = devNull
 	cmd.Stdout = devNull
 	cmd.Stderr = devNull
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	if err := configureDetachedProcess(cmd); err != nil {
+		if resolvedPath != "" {
+			_ = os.Remove(resolvedPath)
+		}
+		return State{}, fmt.Errorf("proxy-serve start: %w", err)
+	}
 	if err := cmd.Start(); err != nil {
 		if resolvedPath != "" {
 			_ = os.Remove(resolvedPath)
@@ -255,6 +258,11 @@ func readState(projectRoot, vmID string) (State, error) {
 
 // WriteState persists proxy.json.
 func WriteState(projectRoot, vmID string, st State) error {
+	startTime, err := processStartTime(st.PID)
+	if err != nil {
+		return fmt.Errorf("proxy process start time: %w", err)
+	}
+	st.StartTime = startTime
 	dir := runDir(projectRoot, vmID)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
@@ -266,43 +274,15 @@ func WriteState(projectRoot, vmID string, st State) error {
 	return os.WriteFile(proxyStatePath(projectRoot, vmID), append(b, '\n'), 0o644)
 }
 
-// Stop kills the proxy process for vmID if running.
+// Stop kills the proxy process for vmID if its recorded identity still matches.
 func Stop(projectRoot, vmID string) error {
 	st, err := readState(projectRoot, vmID)
 	if err != nil {
 		return nil
 	}
-	if st.PID > 0 && isCageProxyPID(st.PID) {
-		_ = syscall.Kill(st.PID, syscall.SIGTERM)
-		deadline := time.Now().Add(3 * time.Second)
-		for time.Now().Before(deadline) {
-			if err := syscall.Kill(st.PID, 0); err != nil {
-				break
-			}
-			time.Sleep(50 * time.Millisecond)
-		}
-		if isCageProxyPID(st.PID) {
-			_ = syscall.Kill(st.PID, syscall.SIGKILL)
-		}
-	}
+	stopMatchingProcess(st.PID, st.StartTime)
 	_ = os.Remove(proxyStatePath(projectRoot, vmID))
 	_ = os.Remove(readyPath(projectRoot, vmID))
 	_ = os.Remove(httpProxyStatePath(projectRoot, vmID))
 	return nil
-}
-
-// isCageProxyPID reports whether pid looks like a live cage proxy-serve process.
-func isCageProxyPID(pid int) bool {
-	if pid <= 0 {
-		return false
-	}
-	if err := syscall.Kill(pid, 0); err != nil {
-		return false
-	}
-	out, err := exec.Command("ps", "-p", strconv.Itoa(pid), "-o", "args=").Output()
-	if err != nil {
-		return false
-	}
-	args := string(out)
-	return strings.Contains(args, "proxy-serve")
 }
