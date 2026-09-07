@@ -41,6 +41,25 @@ func httpProxyConfigPath(projectRoot, vmID string) string {
 	return filepath.Join(runDir(projectRoot, vmID), "http-proxy.yaml")
 }
 
+// ResolvedYAMLPath is .cage/run/<vmID>/http-proxy.resolved.yaml under projectRoot.
+func ResolvedYAMLPath(projectRoot, vmID string) string {
+	return filepath.Join(runDir(projectRoot, vmID), "http-proxy.resolved.yaml")
+}
+
+// writeOwnerOnlyFile creates or replaces path at 0600 on the first open.
+func writeOwnerOnlyFile(path string, data []byte) error {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		return err
+	}
+	_, werr := f.Write(data)
+	cerr := f.Close()
+	if werr != nil {
+		return werr
+	}
+	return cerr
+}
+
 func httpProxyStatePath(projectRoot, vmID string) string {
 	return filepath.Join(runDir(projectRoot, vmID), "http-proxy.json")
 }
@@ -100,7 +119,7 @@ func ReadHTTPPorts(projectRoot, vmID string) (HTTPPorts, error) {
 type StartOptions struct {
 	EgressYAML            []byte
 	HTTPProxyYAML         []byte // templates → .cage/run/<id>/http-proxy.yaml (no secret values)
-	HTTPProxyResolvedYAML []byte // optional substituted yaml for Configure only (temp file)
+	HTTPProxyResolvedYAML []byte // optional substituted yaml → .cage/run/<id>/http-proxy.resolved.yaml (0600, deleted after read)
 	Logging               bool
 	ConfigPath            string
 	DenyHTTP              bool
@@ -126,36 +145,26 @@ func Start(projectRoot, vmID, cageBin string, opts StartOptions) (State, error) 
 		return State{}, err
 	}
 	hpPath := ""
-	hpResolvedPath := ""
+	resolvedPath := ""
 	if len(opts.HTTPProxyYAML) > 0 && string(opts.HTTPProxyYAML) != "{}\n" && string(opts.HTTPProxyYAML) != "null\n" {
 		hpPath = httpProxyConfigPath(projectRoot, vmID)
 		if err := os.WriteFile(hpPath, opts.HTTPProxyYAML, 0o644); err != nil {
 			return State{}, err
 		}
+		resolvedPath = ResolvedYAMLPath(projectRoot, vmID)
+		_ = os.Remove(resolvedPath)
 		if len(opts.HTTPProxyResolvedYAML) > 0 {
-			f, err := os.CreateTemp("", "cage-http-proxy-resolved-*.yaml")
-			if err != nil {
+			if err := writeOwnerOnlyFile(resolvedPath, opts.HTTPProxyResolvedYAML); err != nil {
+				_ = os.Remove(resolvedPath)
 				return State{}, err
 			}
-			hpResolvedPath = f.Name()
-			if err := f.Chmod(0o600); err != nil {
-				f.Close()
-				_ = os.Remove(hpResolvedPath)
-				return State{}, err
-			}
-			if _, err := f.Write(opts.HTTPProxyResolvedYAML); err != nil {
-				f.Close()
-				_ = os.Remove(hpResolvedPath)
-				return State{}, err
-			}
-			if err := f.Close(); err != nil {
-				_ = os.Remove(hpResolvedPath)
-				return State{}, err
-			}
+		} else {
+			resolvedPath = ""
 		}
 	} else {
 		_ = os.Remove(httpProxyConfigPath(projectRoot, vmID))
 		_ = os.Remove(httpProxyStatePath(projectRoot, vmID))
+		_ = os.Remove(ResolvedYAMLPath(projectRoot, vmID))
 	}
 	ready := readyPath(projectRoot, vmID)
 	_ = os.Remove(ready)
@@ -169,9 +178,6 @@ func Start(projectRoot, vmID, cageBin string, opts StartOptions) (State, error) 
 	}
 	if hpPath != "" {
 		args = append(args, "--http-proxy", hpPath)
-	}
-	if hpResolvedPath != "" {
-		args = append(args, "--http-proxy-resolved", hpResolvedPath)
 	}
 	if opts.ConfigPath != "" {
 		args = append(args, "--config", opts.ConfigPath)
@@ -200,6 +206,9 @@ func Start(projectRoot, vmID, cageBin string, opts StartOptions) (State, error) 
 	// Detach from the operator TTY — traffic stays in proxy.log; follow with `cage vm logs -f`.
 	devNull, err := os.OpenFile(os.DevNull, os.O_RDWR, 0)
 	if err != nil {
+		if resolvedPath != "" {
+			_ = os.Remove(resolvedPath)
+		}
 		return State{}, fmt.Errorf("proxy-serve open %s: %w", os.DevNull, err)
 	}
 	defer devNull.Close()
@@ -208,8 +217,8 @@ func Start(projectRoot, vmID, cageBin string, opts StartOptions) (State, error) 
 	cmd.Stderr = devNull
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := cmd.Start(); err != nil {
-		if hpResolvedPath != "" {
-			_ = os.Remove(hpResolvedPath)
+		if resolvedPath != "" {
+			_ = os.Remove(resolvedPath)
 		}
 		return State{}, fmt.Errorf("proxy-serve start: %w", err)
 	}
@@ -224,6 +233,9 @@ func Start(projectRoot, vmID, cageBin string, opts StartOptions) (State, error) 
 	st, err := readState(projectRoot, vmID)
 	if err != nil {
 		_ = cmd.Process.Kill()
+		if resolvedPath != "" {
+			_ = os.Remove(resolvedPath)
+		}
 		return State{}, fmt.Errorf("proxy ready: %w", err)
 	}
 	return st, nil

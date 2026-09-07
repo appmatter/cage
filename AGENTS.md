@@ -22,7 +22,7 @@ Do not add abstractions, wrappers, compatibility layers or exported APIs unless 
 
 When extracting a boundary, first delegate to existing behaviour. Move implementation and change behaviour only in separately requested steps.
 
-Use doc comments where useful. Avoid unnecessary inline commentary.
+Doc comments: one short sentence, only when the name and signature do not state the contract. Do not restate the function name, path or obvious behaviour. No inline comments except for a non-obvious invariant.
 
 ## Tests
 
