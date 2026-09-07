@@ -1,4 +1,4 @@
-package network
+package proxy
 
 import (
 	"os"
@@ -18,15 +18,15 @@ func TestIsCageProxyPIDRejectsUnrelated(t *testing.T) {
 func TestStopDetachedProxySkipsStalePID(t *testing.T) {
 	root := t.TempDir()
 	id := "stale-pid"
-	dir := RunDir(root, id)
+	dir := runDir(root, id)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	st := ProxyState{PID: os.Getpid(), Port: 1, HTTPPort: 2}
-	if err := WriteProxyState(root, id, st); err != nil {
+	st := State{PID: os.Getpid(), Port: 1, HTTPPort: 2}
+	if err := WriteState(root, id, st); err != nil {
 		t.Fatal(err)
 	}
-	if err := StopDetachedProxy(root, id); err != nil {
+	if err := Stop(root, id); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "proxy.json")); !os.IsNotExist(err) {

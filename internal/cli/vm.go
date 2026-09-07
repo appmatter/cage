@@ -176,7 +176,7 @@ func newVMStopCmd() *cobra.Command {
 				id = defaultVMID()
 			}
 			termlog.CLI("stop %s", id)
-			_ = network.StopDetachedProxy(".", id)
+			_ = proxy.Stop(".", id)
 			return withRuntime(backendName, func(b runtimeplugin.Backend) error {
 				if err := b.Stop(id); err != nil {
 					return err
@@ -236,7 +236,7 @@ func newVMDeleteCmd() *cobra.Command {
 				return err
 			}
 			termlog.CLI("delete %s", spec.ID)
-			_ = network.StopDetachedProxy(".", spec.ID)
+			_ = proxy.Stop(".", spec.ID)
 			return withRuntime(backendName, func(b runtimeplugin.Backend) error {
 				if err := b.Delete(spec); err != nil {
 					return err
@@ -329,7 +329,7 @@ func newVMLogsCmd() *cobra.Command {
 			if id == "" {
 				id = defaultVMID()
 			}
-			path := network.ProxyLogPath(".", id)
+			path := proxy.LogPath(".", id)
 			return network.WriteTrafficFollow(path, follow, func(line string) {
 				termlog.CLI("%s", line)
 			})
