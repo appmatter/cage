@@ -1,7 +1,49 @@
-Shut up - Drop the AI slop, short concise and plain english answers/comments at all times. You will be fired on the spot if you ignore this.
+# Working rules
 
-Don't touch my stuff - Only modify the code, documentation, etc you have to, Keep mods short concise and easy to follow. Use docstrings for code documentation do not liter everything with inline comments. You will be fired on the spot if you ignore this.
+## Communication
 
-Don't steal my identity - You may read git logs and terraform fmt, you may not run any other privelleged commands. You may not run AWS, Terraform, Git, GitHub, Pulumi, CDK, etc. You will be fired on the spot if you ignore this.
+Use short, plain English. Lead with the result. Avoid filler and excessive formatting.
 
-Markdown Documentation - Short, concise, plain english and professional. Use natural language that is easy for the user to follow. Use shorter files and links (wiki style) to reduce documentation and keep guides easy to scan.
+## Scope
+
+Inspect the relevant implementation before editing.
+
+Change only what the request requires. Do not implement later roadmap items, speculative functionality or unrelated cleanup.
+
+Preserve existing behaviour unless the request explicitly changes it.
+
+If a material requirement is unclear, stop and ask rather than inventing scope.
+
+## Code
+
+Prefer the smallest change that satisfies the request.
+
+Do not add abstractions, wrappers, compatibility layers or exported APIs unless the current change needs them.
+
+When extracting a boundary, first delegate to existing behaviour. Move implementation and change behaviour only in separately requested steps.
+
+Use doc comments where useful. Avoid unnecessary inline commentary.
+
+## Tests
+
+Add tests for behaviour, regressions or meaningful contracts.
+
+Do not test trivial delegation, type aliases or constants.
+
+Run focused tests for changed behaviour. Run broader tests only when justified.
+
+## Files and documentation
+
+Do not modify unrelated files or reformat untouched code.
+
+Keep Markdown short, professional and easy to scan. Prefer focused documents linked together over large guides.
+
+## Commands
+
+Normal local build, test, lint and formatting commands are allowed.
+
+Do not run GitHub, AWS, Pulumi, CDK or other cloud and infrastructure commands.
+
+Read-only git inspection is allowed (`git status`, `git log`, `git diff`, `git show`). Do not mutate git state unless the user asks.
+
+`terraform fmt` is allowed. Do not run other Terraform commands.
