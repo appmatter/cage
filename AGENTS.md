@@ -14,6 +14,10 @@ Preserve existing behaviour unless the request explicitly changes it.
 
 If a material requirement is unclear, stop and ask rather than inventing scope.
 
+One concept per PR or commit. A reviewer should grasp the change from the title and a short diff.
+
+If a request covers more than one concept, or will touch many unrelated files, stop. Propose a numbered breakdown (one concept each) and wait. Do not start the large change.
+
 ## Code
 
 Prefer the smallest change that satisfies the request.
