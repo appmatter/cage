@@ -1,0 +1,27 @@
+version: "3"
+
+vars:
+  CONFIG: config.json
+  BIN: cage-web
+
+tasks:
+  build:
+    desc: Build the Cage web client
+    cmds:
+      - go build -o {{.BIN}} .
+
+  test:
+    desc: Run web client tests
+    cmds:
+      - go test ./...
+
+  run:
+    desc: Build and run the web client
+    deps: [build]
+    cmds:
+      - ./{{.BIN}} -config {{.CONFIG}}
+
+  dev:
+    desc: Run with Air
+    cmds:
+      - air -- -config {{.CONFIG}}

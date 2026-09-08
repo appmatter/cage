@@ -1,0 +1,1473 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cage</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;600&display=swap" rel="stylesheet">
+  <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+  <script src="https://unpkg.com/marked@15.0.7/marked.min.js"></script>
+  <script src="https://unpkg.com/dompurify@3.2.4/dist/purify.min.js"></script>
+  <style>
+    :root {
+      --bg: #eef1f4;
+      --panel: #fbfcfd;
+      --border: #c9d0d8;
+      --text: #1a222c;
+      --muted: #5c6b7a;
+      --accent: #1f6b4f;
+      --user: #e4ebe7;
+      --ok: #1f6b4f;
+      --err: #a33b3b;
+      --mono: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+      --sans: "IBM Plex Sans", "Segoe UI", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    html, body {
+      height: 100%;
+      height: 100dvh;
+      margin: 0;
+      background:
+        radial-gradient(1200px 500px at 10% -10%, #d9e5df 0%, transparent 55%),
+        linear-gradient(180deg, #f5f7f8 0%, var(--bg) 40%);
+      color: var(--text);
+      font: 14px/1.45 var(--sans);
+      overflow: hidden;
+    }
+
+    .shell {
+      height: 100%;
+      min-height: 0;
+      display: grid;
+      grid-template-columns: 15.5rem minmax(0, 1fr);
+      max-width: 72rem;
+      margin: 0 auto;
+      border-left: 1px solid var(--border);
+      border-right: 1px solid var(--border);
+      background: color-mix(in srgb, var(--panel) 88%, transparent);
+      backdrop-filter: blur(6px);
+    }
+    @media (max-width: 720px) {
+      .shell { grid-template-columns: 1fr; }
+      .sidebar { display: none; }
+      .sidebar.open { display: flex; position: absolute; inset: 0; z-index: 5; }
+    }
+
+    .sidebar {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      border-right: 1px solid var(--border);
+      background: var(--panel);
+    }
+    .sidebar-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: .5rem;
+      padding: .65rem .75rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .sidebar-head h1 {
+      margin: 0;
+      font-size: .95rem;
+      font-weight: 600;
+      letter-spacing: .02em;
+    }
+    #chat-list {
+      list-style: none;
+      margin: 0;
+      padding: .4rem;
+      overflow-y: auto;
+      flex: 1;
+      min-height: 0;
+    }
+    #chat-list li {
+      display: flex;
+      align-items: center;
+      gap: .35rem;
+      padding: .45rem .55rem;
+      border-radius: 6px;
+      cursor: pointer;
+      color: var(--text);
+      font-size: .86rem;
+    }
+    #chat-list li:hover { background: #e8f0ec; }
+    #chat-list li.active {
+      background: color-mix(in srgb, var(--accent) 14%, white);
+      font-weight: 600;
+    }
+    #chat-list li .title {
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    #chat-list li .dot {
+      width: .45rem;
+      height: .45rem;
+      border-radius: 50%;
+      background: var(--accent);
+      flex-shrink: 0;
+      opacity: 0;
+    }
+    #chat-list li.live .dot { opacity: 1; }
+    #chat-list li .rename {
+      display: none;
+      border: none;
+      background: transparent;
+      cursor: pointer;
+      color: var(--muted, #555);
+      padding: 0 .25rem;
+      font-size: .8rem;
+      line-height: 1;
+      flex-shrink: 0;
+    }
+    #chat-list li:hover .rename { display: inline; }
+    #chat-list li .rename:focus-visible { display: inline; outline: 1px solid var(--accent); border-radius: 4px; }
+    #chat-list li .rename:hover { color: var(--accent); }
+    #chat-list li input.rename-input {
+      flex: 1;
+      min-width: 0;
+      font: inherit;
+      padding: .1rem .35rem;
+      border: 1px solid var(--accent);
+      border-radius: 4px;
+      background: white;
+      color: var(--text);
+    }
+
+    header .chat-head {
+      flex: 1;
+      min-width: 0;
+    }
+    header h1#chat-title {
+      margin: 0;
+      font-size: 1rem;
+      font-weight: 600;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      border-radius: 4px;
+      padding: .1rem .3rem;
+      margin-left: -.3rem;
+    }
+    header h1#chat-title:hover { background: #e8f0ec; }
+    header #rename-chat {
+      display: none;
+      border: none;
+      background: transparent;
+      cursor: pointer;
+      color: var(--muted, #555);
+      padding: .2rem .35rem;
+      font-size: 1rem;
+    }
+    header .chat-head:hover #rename-chat { display: inline; }
+    header #rename-chat:focus-visible { display: inline; outline: 1px solid var(--accent); border-radius: 4px; }
+    header #rename-chat:hover { color: var(--accent); }
+    header input#rename-input {
+      font: inherit;
+      font-weight: 600;
+      padding: .1rem .4rem;
+      border: 1px solid var(--accent);
+      border-radius: 4px;
+      background: white;
+      color: var(--text);
+      min-width: 0;
+    }
+
+    #run-status {
+      display: inline-flex;
+      align-items: center;
+      gap: .45rem;
+      margin-left: auto;
+      padding: .25rem .65rem;
+      border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--accent) 10%, white);
+      color: var(--accent);
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: .02em;
+      white-space: nowrap;
+    }
+    #run-status[hidden] { display: none; }
+    #run-status .throbber {
+      width: .7rem;
+      height: .7rem;
+      border: 2px solid color-mix(in srgb, var(--accent) 30%, white);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: throb 0.7s linear infinite;
+      flex-shrink: 0;
+    }
+    @keyframes throb {
+      to { transform: rotate(360deg); }
+    }
+
+    .app {
+      height: 100%;
+      min-height: 0;
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr) auto;
+      min-width: 0;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: .75rem;
+      padding: .65rem 1rem;
+      border-bottom: 1px solid var(--border);
+      background: var(--panel);
+    }
+    header h1 {
+      margin: 0;
+      font-size: .95rem;
+      font-weight: 600;
+      letter-spacing: .02em;
+    }
+    .controls {
+      display: flex;
+      gap: .4rem;
+      flex-wrap: wrap;
+    }
+
+    #feed {
+      overflow-y: auto;
+      padding: 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: .65rem;
+      min-height: 0;
+    }
+    #feed > * {
+      flex-shrink: 0;
+      max-width: 100%;
+    }
+
+    .msg {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--panel);
+      padding: .55rem .7rem;
+      box-shadow: 0 1px 0 rgba(26, 34, 44, 0.04);
+    }
+    .msg.user {
+      background: var(--user);
+      border-color: #b7c7be;
+      align-self: flex-end;
+      max-width: 92%;
+      white-space: pre-wrap;
+    }
+    .msg.status, .msg.done {
+      border-style: dashed;
+      color: var(--muted);
+      font-size: 12px;
+      padding: .35rem .55rem;
+      background: transparent;
+      box-shadow: none;
+    }
+    .msg.error {
+      border-color: #d2a0a0;
+      color: var(--err);
+      background: #fff7f7;
+      white-space: pre-wrap;
+    }
+    .msg.text {
+      white-space: normal;
+    }
+    .msg.text.md {
+      line-height: 1.5;
+    }
+    .msg.text.md > :first-child { margin-top: 0; }
+    .msg.text.md > :last-child { margin-bottom: 0; }
+    .msg.text.md p { margin: 0.55em 0; }
+    .msg.text.md h1,
+    .msg.text.md h2,
+    .msg.text.md h3,
+    .msg.text.md h4 {
+      margin: 0.85em 0 0.35em;
+      font-weight: 600;
+      line-height: 1.25;
+    }
+    .msg.text.md h1 { font-size: 1.25rem; }
+    .msg.text.md h2 { font-size: 1.1rem; }
+    .msg.text.md h3 { font-size: 1rem; }
+    .msg.text.md ul,
+    .msg.text.md ol {
+      margin: 0.45em 0;
+      padding-left: 1.35rem;
+    }
+    .msg.text.md li { margin: 0.15em 0; }
+    .msg.text.md li > p { margin: 0.2em 0; }
+    .msg.text.md blockquote {
+      margin: 0.55em 0;
+      padding: 0.15rem 0 0.15rem 0.75rem;
+      border-left: 3px solid var(--border);
+      color: var(--muted);
+    }
+    .msg.text.md hr {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 0.85em 0;
+    }
+    .msg.text.md a {
+      color: var(--accent);
+    }
+    .msg.text.md code {
+      font-family: var(--mono);
+      font-size: 0.88em;
+      background: #eef2f5;
+      border: 1px solid #dde3e9;
+      border-radius: 4px;
+      padding: 0.05em 0.3em;
+    }
+    .msg.text.md pre {
+      margin: 0.55em 0;
+      padding: 0.65rem 0.75rem;
+      background: #f3f6f8;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      overflow-x: auto;
+    }
+    .msg.text.md pre code {
+      background: none;
+      border: none;
+      padding: 0;
+      font-size: 12px;
+      line-height: 1.45;
+    }
+    .msg.text.md table {
+      border-collapse: collapse;
+      margin: 0.55em 0;
+      font-size: 0.92em;
+      width: 100%;
+    }
+    .msg.text.md th,
+    .msg.text.md td {
+      border: 1px solid var(--border);
+      padding: 0.3rem 0.5rem;
+      text-align: left;
+    }
+    .msg.text.md th {
+      background: #f3f6f8;
+      font-weight: 600;
+    }
+
+    details.block {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--panel);
+      overflow: hidden;
+      box-shadow: 0 1px 0 rgba(26, 34, 44, 0.04);
+    }
+    details.block > summary {
+      cursor: pointer;
+      list-style: none;
+      padding: .45rem .7rem;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: .03em;
+      text-transform: uppercase;
+      user-select: none;
+      display: flex;
+      align-items: center;
+      gap: .5rem;
+      background: #f3f6f8;
+    }
+    details.block > summary::-webkit-details-marker { display: none; }
+    details.block > summary::before {
+      content: "▸";
+      color: var(--accent);
+      font-size: 11px;
+    }
+    details.block[open] > summary::before { content: "▾"; }
+    .tool-card {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--panel);
+      overflow: hidden;
+      box-shadow: 0 1px 0 rgba(26, 34, 44, 0.04);
+    }
+    .tool-card.fail { border-color: #d2a0a0; }
+    .tool-card.ok { border-color: #b7c7be; }
+    .tool-head {
+      display: flex;
+      align-items: baseline;
+      gap: .5rem;
+      flex-wrap: wrap;
+      padding: .45rem .7rem;
+      background: #f3f6f8;
+      color: #2f5f8a;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: .03em;
+      text-transform: uppercase;
+    }
+    .tool-card.ok .tool-head { color: var(--ok); }
+    .tool-card.fail .tool-head { color: var(--err); }
+    .tool-head .tool-target {
+      text-transform: none;
+      letter-spacing: 0;
+      font-weight: 500;
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 12px;
+    }
+    .tool-head .tool-meta-inline {
+      text-transform: none;
+      letter-spacing: 0;
+      font-weight: 500;
+      color: var(--muted);
+      margin-left: auto;
+    }
+    .tool-peek {
+      margin: 0;
+      padding: .55rem .7rem;
+      border-top: 1px solid var(--border);
+      white-space: pre-wrap;
+      font-family: var(--mono);
+      font-size: 12px;
+      line-height: 1.4;
+      color: #3a4654;
+      background: #fafbfc;
+      max-height: 6.5rem;
+      overflow: hidden;
+    }
+    .tool-card details.tool-full {
+      border: none;
+      border-radius: 0;
+      box-shadow: none;
+      background: transparent;
+    }
+    .tool-card details.tool-full > summary {
+      background: #f3f6f8;
+      border-top: 1px solid var(--border);
+      text-transform: none;
+      letter-spacing: 0;
+      font-weight: 500;
+    }
+    .tool-card details.tool-full .body {
+      border-top: 1px solid var(--border);
+    }
+
+    details.thought {
+      border: none;
+      background: transparent;
+      box-shadow: none;
+      overflow: visible;
+    }
+    details.thought > summary {
+      display: inline-flex;
+      width: auto;
+      max-width: 100%;
+      padding: .2rem .45rem;
+      border-radius: 6px;
+      background: transparent;
+      color: #4d5d6c;
+      font: 600 12px/1.4 var(--sans);
+      letter-spacing: 0;
+      text-transform: none;
+    }
+    details.thought > summary:hover {
+      background: #e8eef2;
+      color: var(--text);
+    }
+    details.thought > summary::before {
+      content: "▸";
+      color: var(--accent);
+    }
+    details.thought[open] > summary::before { content: "▾"; }
+    .thought-body {
+      margin: .35rem 0 0;
+      padding: .65rem .75rem;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #f4f7f9;
+      color: #3a4654;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+      font: 13px/1.5 var(--sans);
+      max-height: 20rem;
+      overflow: auto;
+    }
+
+    .body {
+      margin: 0;
+      padding: .55rem .7rem .7rem;
+      border-top: 1px solid var(--border);
+      white-space: pre-wrap;
+      font-family: var(--mono);
+      font-size: 12px;
+      line-height: 1.4;
+      overflow-x: auto;
+      background: #fafbfc;
+    }
+    .body pre {
+      margin: 0;
+      font: inherit;
+      white-space: pre-wrap;
+    }
+    .tool-meta {
+      color: var(--muted);
+      font-size: 11px;
+      margin: .35rem 0 .2rem;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+    }
+    .tool-meta:first-child { margin-top: 0; }
+
+    .composer {
+      border-top: 1px solid var(--border);
+      background: var(--panel);
+      padding: .75rem 1rem 1rem;
+      display: grid;
+      gap: .5rem;
+    }
+    .composer label {
+      display: grid;
+      gap: .25rem;
+      font-size: 11px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: .04em;
+    }
+    .composer .prompt-wrap {
+      position: relative;
+    }
+    #mention-menu {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: calc(100% + 4px);
+      margin: 0;
+      padding: .25rem;
+      list-style: none;
+      max-height: 14rem;
+      overflow-y: auto;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #fff;
+      box-shadow: 0 8px 24px rgba(26, 34, 44, 0.12);
+      z-index: 5;
+    }
+    #mention-menu[hidden] { display: none; }
+    #mention-menu li {
+      padding: .4rem .55rem;
+      border-radius: 6px;
+      font: 12px/1.35 var(--mono);
+      cursor: pointer;
+      color: var(--text);
+    }
+    #mention-menu li:hover,
+    #mention-menu li.active {
+      background: #e8f0ec;
+    }
+    #mention-menu .empty {
+      color: var(--muted);
+      cursor: default;
+    }
+    #mention-menu .empty:hover { background: transparent; }
+    #mention-menu li .glyph {
+      display: inline-block;
+      width: 1.1em;
+      color: var(--muted);
+    }
+    textarea, input[type=text] {
+      width: 100%;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: #fff;
+      color: var(--text);
+      padding: .5rem .6rem;
+      font: inherit;
+      resize: vertical;
+    }
+    textarea:focus, input[type=text]:focus {
+      outline: 2px solid color-mix(in srgb, var(--accent) 35%, white);
+      border-color: var(--accent);
+    }
+    textarea[name=prompt] { min-height: 4.5rem; max-height: 12rem; }
+    .send-row {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: .65rem;
+    }
+    #run-status-composer {
+      display: inline-flex;
+      align-items: center;
+      gap: .4rem;
+      margin-right: auto;
+      color: var(--accent);
+      font-size: 12px;
+      font-weight: 600;
+    }
+    #run-status-composer[hidden] { display: none; }
+    #run-status-composer .throbber {
+      width: .65rem;
+      height: .65rem;
+      border: 2px solid color-mix(in srgb, var(--accent) 30%, white);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: throb 0.7s linear infinite;
+      flex-shrink: 0;
+    }
+    button {
+      border: 1px solid var(--border);
+      background: #fff;
+      color: var(--text);
+      border-radius: 6px;
+      padding: .4rem .75rem;
+      font: inherit;
+      cursor: pointer;
+    }
+    button:hover { border-color: #9aa8b5; }
+    button.primary {
+      background: var(--accent);
+      border-color: #18563f;
+      color: #fff;
+      font-weight: 600;
+    }
+    button.primary:hover { filter: brightness(1.05); }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-head">
+        <h1>Chats</h1>
+        <button type="button" class="primary" id="btn-new-chat">New</button>
+      </div>
+      <ul id="chat-list" aria-label="Chat history"></ul>
+    </aside>
+    <div class="app">
+    <header>
+      <div class="chat-head">
+        <h1 id="chat-title" title="Double-click or click ✎ to rename">Cage</h1>
+        <button type="button" id="rename-chat" title="Rename chat">✎</button>
+      </div>
+      <div id="run-status" hidden aria-live="polite">
+        <span class="throbber" aria-hidden="true"></span>
+        <span class="run-label">Waiting…</span>
+      </div>
+      <div class="controls">
+        <button type="button" hx-post="/interrupt" hx-swap="none">Interrupt</button>
+        <button type="button" hx-post="/restart" hx-swap="none">Restart</button>
+        <button type="button" hx-post="/stop" hx-swap="none">Stop</button>
+      </div>
+    </header>
+
+    <div id="feed" aria-live="polite"></div>
+
+    <form class="composer" id="composer" hx-post="/prompt" hx-swap="none"
+          hx-on::before-request="onPromptSending(event.target)"
+          hx-on::after-request="onPromptAfter(event)">
+      <label>Prompt
+        <div class="prompt-wrap">
+          <textarea name="prompt" id="prompt" required placeholder="Ask something — type @ to mention a file or folder"></textarea>
+          <input type="hidden" name="mentions" id="mentions">
+          <ul id="mention-menu" hidden></ul>
+        </div>
+      </label>
+      <div class="send-row">
+        <div id="run-status-composer" hidden aria-hidden="true">
+          <span class="throbber"></span>
+          <span class="run-label">Waiting…</span>
+        </div>
+        <button class="primary" type="submit">Send</button>
+      </div>
+    </form>
+    </div>
+  </div>
+
+  <script>
+    const feed = document.getElementById("feed");
+    const chatList = document.getElementById("chat-list");
+    const chatTitle = document.getElementById("chat-title");
+    const runStatus = document.getElementById("run-status");
+    const runStatusComposer = document.getElementById("run-status-composer");
+    let activeChatId = null;
+    let stick = true;
+    let busy = false;
+    let activeRunId = null; // requestId from supervisor status.phase=running
+    let thinking = null; // { root, body, label }
+    let textEl = null;
+    let textRaw = "";
+
+    function setBusy(on, label) {
+      busy = !!on;
+      if (!busy) activeRunId = null;
+      const text = label || "Waiting…";
+      for (const node of [runStatus, runStatusComposer]) {
+        if (!node) continue;
+        node.hidden = !busy;
+        const lab = node.querySelector(".run-label");
+        if (lab) lab.textContent = text;
+      }
+      document.body.classList.toggle("is-busy", busy);
+    }
+
+    function markWaiting(label) {
+      setBusy(true, label || "Waiting…");
+    }
+
+    function endRun(requestId) {
+      // Clear when this done/error matches the in-flight prompt, or when we
+      // were only optimistically waiting (no status.running yet).
+      if (activeRunId && requestId && requestId !== activeRunId) return;
+      setBusy(false);
+    }
+
+    function setRunLabel(label) {
+      if (!busy) return;
+      for (const node of [runStatus, runStatusComposer]) {
+        const lab = node?.querySelector(".run-label");
+        if (lab) lab.textContent = label;
+      }
+    }
+    marked.setOptions({
+      gfm: true,
+      breaks: true,
+    });
+
+    function renderMarkdown(src) {
+      const html = marked.parse(src || "");
+      return DOMPurify.sanitize(html, {
+        USE_PROFILES: { html: true },
+      });
+    }
+
+    // Follow the bottom while the user is there. If they scroll up to read,
+    // stop auto-scrolling until they return to the bottom.
+    function atBottom() {
+      return feed.scrollHeight - feed.scrollTop - feed.clientHeight < 80;
+    }
+
+    feed.addEventListener("scroll", () => {
+      stick = atBottom();
+    }, { passive: true });
+
+    function scheduleAutoScroll() {
+      if (!stick) return;
+      requestAnimationFrame(() => {
+        if (stick) feed.scrollTop = feed.scrollHeight;
+      });
+    }
+
+    function scrollIfNeeded() {
+      scheduleAutoScroll();
+    }
+
+    // Models that read this client's source sometimes echo SSE envelopes as
+    // prose (and tool JSON can leak into text_delta). Drop those lines.
+    function looksLikeWireEvent(s) {
+      const t = (s || "").trim();
+      if (!t.startsWith("{") || !t.endsWith("}")) return false;
+      try {
+        const o = JSON.parse(t);
+        return o && typeof o === "object" && typeof o.kind === "string";
+      } catch {
+        return false;
+      }
+    }
+
+    function scrubWireNoise(src) {
+      if (!src) return src;
+      // Line-oriented: drop whole lines that are SSE envelopes.
+      const lines = src.split("\n");
+      const kept = [];
+      for (const line of lines) {
+        if (looksLikeWireEvent(line)) continue;
+        kept.push(stripInlineWireEvents(line));
+      }
+      return kept.join("\n").replace(/\n{3,}/g, "\n\n");
+    }
+
+    function stripInlineWireEvents(line) {
+      let out = "";
+      let i = 0;
+      while (i < line.length) {
+        const start = line.indexOf("{", i);
+        if (start < 0) {
+          out += line.slice(i);
+          break;
+        }
+        out += line.slice(i, start);
+        let depth = 0;
+        let end = -1;
+        for (let j = start; j < line.length; j++) {
+          const ch = line[j];
+          if (ch === "{") depth++;
+          else if (ch === "}") {
+            depth--;
+            if (depth === 0) {
+              end = j;
+              break;
+            }
+          }
+        }
+        if (end < 0) {
+          out += line.slice(start);
+          break;
+        }
+        const candidate = line.slice(start, end + 1);
+        if (!looksLikeWireEvent(candidate)) out += candidate;
+        i = end + 1;
+      }
+      return out;
+    }
+
+    function el(tag, className, text) {
+      const node = document.createElement(tag);
+      if (className) node.className = className;
+      if (text != null) node.textContent = text;
+      return node;
+    }
+
+    function finishThinking() {
+      if (!thinking) return;
+      thinking.label.textContent = "Thought";
+      thinking.root.open = false;
+      thinking = null;
+    }
+
+    function closeStreams() {
+      finishThinking();
+      // Drop bubbles that only got whitespace text deltas (common before tools).
+      if (textEl && !(textRaw || "").trim()) {
+        textEl.remove();
+      }
+      textEl = null;
+      textRaw = "";
+    }
+
+    function clearFeed() {
+      closeStreams();
+      feed.replaceChildren();
+      stick = true;
+      setBusy(false);
+    }
+
+    function ensureThinking() {
+      if (thinking) return thinking;
+      textEl = null;
+      textRaw = "";
+      const root = el("details", "block thought");
+      root.open = false;
+      const label = el("summary", null, "Thinking");
+      const body = el("div", "thought-body");
+      root.appendChild(label);
+      root.appendChild(body);
+      root.addEventListener("toggle", () => scrollIfNeeded());
+      feed.appendChild(root);
+      thinking = { root, body, label };
+      return thinking;
+    }
+
+    function ensureText() {
+      if (textEl) return textEl;
+      finishThinking();
+      const msg = el("div", "msg text md");
+      feed.appendChild(msg);
+      textEl = msg;
+      textRaw = "";
+      return msg;
+    }
+
+    function appendText(delta) {
+      if (!textEl && !(delta || "").trim()) return;
+      if (looksLikeWireEvent(delta)) return;
+      const node = ensureText();
+      textRaw += delta;
+      const cleaned = scrubWireNoise(textRaw);
+      if (cleaned !== textRaw) textRaw = cleaned;
+      if (!textRaw.trim()) {
+        node.replaceChildren();
+        return;
+      }
+      node.innerHTML = renderMarkdown(textRaw);
+    }
+
+    function pretty(v) {
+      if (v == null) return "";
+      if (typeof v === "string") return v;
+      try { return JSON.stringify(v, null, 2); }
+      catch { return String(v); }
+    }
+
+    function toolCommand(args) {
+      if (args == null) return "";
+      if (typeof args === "string") return args;
+      if (typeof args !== "object") return String(args);
+      for (const key of ["command", "cmd", "script", "code", "input", "query", "pattern", "path"]) {
+        if (typeof args[key] === "string" && args[key].trim()) return args[key];
+      }
+      return "";
+    }
+
+    function toolOutput(result) {
+      if (result == null) return "";
+      if (typeof result === "string") return result;
+      if (typeof result !== "object") return String(result);
+
+      if (Array.isArray(result.content)) {
+        const parts = result.content
+          .map((part) => {
+            if (typeof part === "string") return part;
+            if (part && typeof part.text === "string") return part.text;
+            if (part && typeof part.content === "string") return part.content;
+            return "";
+          })
+          .filter(Boolean);
+        if (parts.length) return parts.join("\n");
+      }
+
+      for (const key of ["text", "output", "stdout", "stderr", "message", "result"]) {
+        if (typeof result[key] === "string") return result[key];
+      }
+
+      if (typeof result.stdout === "string" || typeof result.stderr === "string") {
+        return [result.stdout, result.stderr].filter((s) => typeof s === "string" && s.length).join("\n");
+      }
+
+      return pretty(result);
+    }
+
+    function renderToolBlock(body, label, text) {
+      body.appendChild(el("div", "tool-meta", label));
+      body.appendChild(el("pre", "tool-out", text || "(empty)"));
+    }
+
+    function toolPreview(text, maxLines = 4, maxChars = 280) {
+      const raw = (text || "").replace(/\s+$/, "");
+      if (!raw) return { preview: "(empty)", lines: 0 };
+      const lines = raw.split("\n");
+      let preview = lines.slice(0, maxLines).join("\n");
+      if (preview.length > maxChars) preview = preview.slice(0, maxChars).trimEnd() + "…";
+      else if (lines.length > maxLines) preview += "\n…";
+      return { preview, lines: lines.length };
+    }
+
+    function toolTarget(args) {
+      const cmd = toolCommand(args);
+      if (cmd) {
+        const one = cmd.trim().split("\n")[0];
+        return one.length > 88 ? one.slice(0, 88) + "…" : one;
+      }
+      if (args && typeof args === "object") {
+        for (const key of ["path", "file", "filename", "target"]) {
+          if (typeof args[key] === "string" && args[key].trim()) return args[key].trim();
+        }
+      }
+      return "";
+    }
+
+    function toolCard(callId, name) {
+      let card = document.getElementById("tool-" + callId);
+      if (card) return card;
+      closeStreams();
+      card = el("div", "tool-card");
+      card.id = "tool-" + callId;
+
+      const head = el("div", "tool-head");
+      head.appendChild(el("span", "tool-name", name || "tool"));
+      const target = el("span", "tool-target");
+      head.appendChild(target);
+      const meta = el("span", "tool-meta-inline", "running…");
+      head.appendChild(meta);
+      card.appendChild(head);
+
+      const peek = el("pre", "tool-peek", "");
+      peek.hidden = true;
+      card.appendChild(peek);
+
+      const full = el("details", "tool-full");
+      full.open = false;
+      const sum = el("summary", null, "Show full output");
+      full.appendChild(sum);
+      const body = el("div", "body");
+      body.id = "tool-body-" + callId;
+      full.appendChild(body);
+      full.hidden = true;
+      card.appendChild(full);
+
+      card._refs = { head, target, meta, peek, full, body, name: name || "tool" };
+      feed.appendChild(card);
+      return card;
+    }
+
+    function onEvent(ev) {
+      if (ev.kind === "chat_activity") {
+        const li = chatList.querySelector(`[data-id="${ev.chatId}"]`);
+        if (li) li.classList.add("live");
+        return;
+      }
+      if (ev.kind === "chat_renamed") {
+        const li = chatList.querySelector(`[data-id="${ev.chatId}"]`);
+        if (li) {
+          const t = li.querySelector(".title");
+          if (t) t.textContent = ev.title || "Chat";
+        }
+        if (ev.chatId === activeChatId) chatTitle.textContent = ev.title || "Chat";
+        return;
+      }
+      if (ev.chatId && activeChatId && ev.chatId !== activeChatId) {
+        const li = chatList.querySelector(`[data-id="${ev.chatId}"]`);
+        if (li) li.classList.add("live");
+        return;
+      }
+      switch (ev.kind) {
+        case "user": {
+          closeStreams();
+          feed.appendChild(el("div", "msg user", ev.text || ""));
+          break;
+        }
+        case "run": {
+          // Supervisor accepted the prompt (status.phase=running).
+          if (ev.phase === "running") {
+            activeRunId = ev.requestId || null;
+            markWaiting("Waiting…");
+          }
+          break;
+        }
+        case "status": {
+          closeStreams();
+          feed.appendChild(el("div", "msg status", ev.text || ""));
+          if (/disconnect/i.test(ev.text || "")) setBusy(false);
+          break;
+        }
+        case "done": {
+          closeStreams();
+          feed.appendChild(el("div", "msg done", ev.text || ""));
+          endRun(ev.requestId);
+          break;
+        }
+        case "error": {
+          closeStreams();
+          feed.appendChild(el("div", "msg error", ev.text || ""));
+          // Rejected prompts never get status.running; still end the wait.
+          endRun(ev.requestId);
+          break;
+        }
+        case "thinking": {
+          const delta = ev.delta || "";
+          if (!delta || looksLikeWireEvent(delta)) break;
+          setRunLabel("Thinking…");
+          const t = ensureThinking();
+          t.body.textContent += delta;
+          break;
+        }
+        case "text": {
+          const delta = ev.delta || "";
+          if (!delta) break;
+          setRunLabel("Working…");
+          appendText(delta);
+          break;
+        }
+        case "tool": {
+          setRunLabel("Running tools…");
+          const name = ev.name || "tool";
+          const card = toolCard(ev.callId || "unknown", name);
+          const refs = card._refs;
+          if (ev.phase === "start") {
+            refs.body.replaceChildren();
+            refs.peek.hidden = true;
+            refs.peek.textContent = "";
+            refs.full.hidden = true;
+            refs.full.open = false;
+            const target = toolTarget(ev.args);
+            card.dataset.target = target;
+            refs.name = name;
+            refs.head.querySelector(".tool-name").textContent = name;
+            refs.target.textContent = target;
+            refs.meta.textContent = "running…";
+            const cmd = toolCommand(ev.args);
+            if (cmd) {
+              renderToolBlock(refs.body, "command", cmd);
+            } else if (ev.args != null) {
+              renderToolBlock(refs.body, "args", pretty(ev.args));
+            }
+          } else if (ev.phase === "end") {
+            card.classList.toggle("ok", ev.ok === true);
+            card.classList.toggle("fail", ev.ok === false);
+            const output = toolOutput(ev.result);
+            const { preview, lines } = toolPreview(output);
+            const target = card.dataset.target || toolTarget(ev.args);
+            refs.target.textContent = target;
+            const mark = ev.ok === false ? "fail" : ev.ok === true ? "ok" : "done";
+            refs.meta.textContent = lines > 1 ? `${mark} · ${lines} lines` : mark;
+            refs.peek.textContent = preview;
+            refs.peek.hidden = false;
+            refs.body.replaceChildren();
+            const cmd = toolCommand(ev.args);
+            if (cmd) renderToolBlock(refs.body, "command", cmd);
+            renderToolBlock(refs.body, "output", output || "(empty)");
+            const needsFold = lines > 4 || output.length > 280;
+            refs.full.querySelector("summary").textContent =
+              needsFold ? `Show full output · ${lines} lines` : "Show full output";
+            refs.full.hidden = !needsFold;
+            refs.full.open = false;
+          }
+          break;
+        }
+        default:
+          closeStreams();
+          feed.appendChild(el("div", "msg status", JSON.stringify(ev)));
+      }
+      scrollIfNeeded();
+    }
+
+    function onPromptSending(form) {
+      const prompt = (form.querySelector("textarea[name=prompt]")?.value || "").trim();
+      if (prompt) onEvent({ kind: "user", text: prompt, chatId: activeChatId });
+      // Optimistic until supervisor status.running (or error/done) arrives.
+      activeRunId = null;
+      markWaiting("Waiting…");
+    }
+
+    function onPromptAfter(event) {
+      if (event.detail.successful) {
+        onPromptSent(event.target);
+        return;
+      }
+      setBusy(false);
+    }
+
+    function onPromptSent(form) {
+      form.reset();
+      selectedMentions = [];
+      hideMentionMenu();
+      form.querySelector("textarea[name=prompt]")?.focus();
+      refreshChatList();
+    }
+
+    async function refreshChatList() {
+      const res = await fetch("/chats");
+      if (!res.ok) throw new Error("chats " + res.status);
+      const data = await res.json();
+      const chats = data.chats || [];
+      chatList.replaceChildren();
+      for (const ch of chats) {
+        const li = el("li", ch.id === activeChatId ? "active" : null);
+        if (ch.live) li.classList.add("live");
+        li.dataset.id = ch.id;
+        li.appendChild(el("span", "dot"));
+        li.appendChild(el("span", "title", ch.title || "Chat"));
+        const renameBtn = el("button", "rename", "✎");
+        renameBtn.type = "button";
+        renameBtn.title = "Rename chat";
+        renameBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          startRenameChat(ch.id, ch.title || "Chat", li);
+        });
+        li.appendChild(renameBtn);
+        li.addEventListener("click", () => selectChat(ch.id));
+        chatList.appendChild(li);
+      }
+      return data;
+    }
+
+    async function renameChat(id, title) {
+      const res = await fetch("/chats/" + encodeURIComponent(id) + "/rename", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title }),
+      });
+      if (!res.ok) throw new Error("rename: " + (await res.text()));
+    }
+
+    function beginRename(li, current, onDone) {
+      if (li.querySelector("input.rename-input")) return;
+      const titleSpan = li.querySelector(".title");
+      if (!titleSpan) return;
+      const input = document.createElement("input");
+      input.className = "rename-input";
+      input.value = current;
+      input.maxLength = 80;
+      const commit = async (ok) => {
+        input.removeEventListener("keydown", onKey);
+        input.removeEventListener("blur", onBlur);
+        if (ok) {
+          const t = input.value.trim();
+          if (t && t !== current) {
+            try {
+              await renameChat(li.dataset.id, t);
+            } catch (e) {
+              onEvent({ kind: "error", text: String(e) });
+            }
+          }
+        }
+        onDone();
+      };
+      const onKey = (e) => {
+        if (e.key === "Enter") commit(true);
+        else if (e.key === "Escape") commit(false);
+      };
+      const onBlur = () => commit(true);
+      input.addEventListener("keydown", onKey);
+      input.addEventListener("blur", onBlur);
+      titleSpan.replaceWith(input);
+      input.focus();
+      input.select();
+    }
+
+    function startRenameChat(id, current, li) {
+      beginRename(li, current, () => refreshChatList().catch(() => {}));
+    }
+
+    function startRenameHeader() {
+      if (!activeChatId || !chatTitle) return;
+      const current = chatTitle.textContent || "";
+      const wrap = chatTitle.parentElement;
+      const btn = document.getElementById("rename-chat");
+      const input = document.createElement("input");
+      input.id = "rename-input";
+      input.value = current;
+      input.maxLength = 80;
+      let finished = false;
+      const finish = async (ok) => {
+        if (finished) return;
+        finished = true;
+        let saved = null;
+        if (ok) {
+          const t = input.value.trim();
+          if (t && t !== current) {
+            try {
+              await renameChat(activeChatId, t);
+              saved = t;
+            } catch (e) {
+              onEvent({ kind: "error", text: String(e) });
+            }
+          }
+        }
+        input.replaceWith(chatTitle);
+        chatTitle.textContent = saved || current;
+        chatTitle.style.display = "";
+        if (btn) btn.style.display = "";
+        refreshChatList().catch(() => {});
+      };
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") finish(true);
+        else if (e.key === "Escape") finish(false);
+      });
+      input.addEventListener("blur", () => finish(true));
+      chatTitle.replaceWith(input);
+      input.focus();
+      input.select();
+    }
+
+    async function loadChat(id) {
+      const res = await fetch("/chats/" + encodeURIComponent(id));
+      if (!res.ok) throw new Error("chat " + res.status);
+      return res.json();
+    }
+
+    async function selectChat(id) {
+      if (!id) return;
+      const res = await fetch("/chats/" + encodeURIComponent(id) + "/select", { method: "POST" });
+      if (!res.ok) {
+        onEvent({ kind: "error", text: "select: " + (await res.text()) });
+        return;
+      }
+      activeChatId = id;
+      const chat = await loadChat(id);
+      chatTitle.textContent = chat.title || "Chat";
+      clearFeed();
+      for (const entry of chat.entries || []) onEvent(entry);
+      stick = true;
+      scheduleAutoScroll();
+      await refreshChatList();
+    }
+
+    async function createChat() {
+      const res = await fetch("/chats", { method: "POST" });
+      if (!res.ok) {
+        onEvent({ kind: "error", text: "new chat: " + (await res.text()) });
+        return;
+      }
+      const chat = await res.json();
+      activeChatId = chat.id;
+      chatTitle.textContent = chat.title || "New chat";
+      clearFeed();
+      await refreshChatList();
+      document.getElementById("prompt")?.focus();
+    }
+
+    document.getElementById("btn-new-chat")?.addEventListener("click", () => {
+      createChat().catch((e) => onEvent({ kind: "error", text: String(e) }));
+    });
+
+    document.getElementById("rename-chat")?.addEventListener("click", startRenameHeader);
+    chatTitle?.addEventListener("dblclick", startRenameHeader);
+
+    const es = new EventSource("/events");
+    es.addEventListener("event", (e) => {
+      try { onEvent(JSON.parse(e.data)); }
+      catch (err) { onEvent({ kind: "error", text: String(e.data) }); }
+    });
+    es.onerror = () => {
+      /* browser reconnects; avoid spamming the feed */
+    };
+
+    (async () => {
+      try {
+        const data = await refreshChatList();
+        if (data.activeId) {
+          await selectChat(data.activeId);
+        } else if ((data.chats || []).length) {
+          await selectChat(data.chats[0].id);
+        } else {
+          await createChat();
+        }
+      } catch (e) {
+        onEvent({ kind: "error", text: String(e) });
+      }
+    })();
+
+    const promptEl = document.getElementById("prompt");
+    const mentionMenu = document.getElementById("mention-menu");
+    let mentionTimer = null;
+    let mentionItems = [];
+    let mentionActive = -1;
+    let mentionRange = null; // { start, end }
+    let selectedMentions = [];
+
+    function hideMentionMenu() {
+      mentionMenu.hidden = true;
+      mentionMenu.replaceChildren();
+      mentionItems = [];
+      mentionActive = -1;
+      mentionRange = null;
+    }
+
+    function atTokenAtCursor(value, cursor) {
+      const before = value.slice(0, cursor);
+      const m = before.match(/(^|[\s])@([^\s@]*)$/);
+      if (!m) return null;
+      const query = m[2] || "";
+      const start = cursor - query.length - 1; // index of @
+      return { start, end: cursor, query };
+    }
+
+    function renderMentionMenu(paths) {
+      mentionItems = paths;
+      mentionActive = paths.length ? 0 : -1;
+      mentionMenu.replaceChildren();
+      if (!paths.length) {
+        const li = el("li", "empty", "No matching files or folders");
+        mentionMenu.appendChild(li);
+        mentionMenu.hidden = false;
+        return;
+      }
+      paths.forEach((mention, i) => {
+        const path = mention.path || "";
+        const isDir = mention.kind === "directory";
+        const li = el("li", i === 0 ? "active" : null, null);
+        li.dataset.path = path;
+        const glyph = el("span", "glyph", isDir ? "▸" : "·");
+        glyph.title = isDir ? "folder" : "file";
+        li.appendChild(glyph);
+        li.appendChild(document.createTextNode(" " + path));
+        li.addEventListener("mousedown", (e) => {
+          e.preventDefault();
+          applyMention(mention);
+        });
+        mentionMenu.appendChild(li);
+      });
+      mentionMenu.hidden = false;
+    }
+
+    function setMentionActive(i) {
+      if (!mentionItems.length) return;
+      mentionActive = (i + mentionItems.length) % mentionItems.length;
+      [...mentionMenu.children].forEach((li, idx) => {
+        li.classList.toggle("active", idx === mentionActive);
+      });
+      mentionMenu.children[mentionActive]?.scrollIntoView({ block: "nearest" });
+    }
+
+    function applyMention(mention) {
+      if (!mentionRange) return;
+      const path = mention.path || "";
+      if (!path) return;
+      const value = promptEl.value;
+      const next = value.slice(0, mentionRange.start) + "@" + path + " " + value.slice(mentionRange.end);
+      const caret = mentionRange.start + path.length + 2;
+      selectedMentions = selectedMentions.filter((item) => item.path !== path);
+      selectedMentions.push({ path, kind: mention.kind || (path.endsWith("/") ? "directory" : "file") });
+      document.getElementById("mentions").value = JSON.stringify(selectedMentions);
+      promptEl.value = next;
+      promptEl.setSelectionRange(caret, caret);
+      hideMentionMenu();
+      promptEl.focus();
+    }
+
+    function scheduleMentionSuggest() {
+      clearTimeout(mentionTimer);
+      mentionTimer = setTimeout(runMentionSuggest, 60);
+    }
+
+    async function runMentionSuggest() {
+      const cursor = promptEl.selectionStart ?? 0;
+      const token = atTokenAtCursor(promptEl.value, cursor);
+      if (!token) {
+        hideMentionMenu();
+        return;
+      }
+      mentionRange = { start: token.start, end: token.end };
+      try {
+        const res = await fetch("/mentions?q=" + encodeURIComponent(token.query));
+        if (!res.ok) throw new Error("mentions " + res.status);
+        const data = await res.json();
+        // Cursor may have moved while fetching.
+        const now = atTokenAtCursor(promptEl.value, promptEl.selectionStart ?? 0);
+        if (!now || now.start !== token.start) return;
+        mentionRange = { start: now.start, end: now.end };
+        renderMentionMenu(Array.isArray(data.paths) ? data.paths : []);
+      } catch {
+        hideMentionMenu();
+      }
+    }
+
+    promptEl?.addEventListener("input", scheduleMentionSuggest);
+    promptEl?.addEventListener("click", scheduleMentionSuggest);
+    promptEl?.addEventListener("keydown", (e) => {
+      if (!mentionMenu.hidden && mentionItems.length) {
+        if (e.key === "ArrowDown") {
+          e.preventDefault();
+          setMentionActive(mentionActive + 1);
+          return;
+        }
+        if (e.key === "ArrowUp") {
+          e.preventDefault();
+          setMentionActive(mentionActive - 1);
+          return;
+        }
+        if (e.key === "Enter" || e.key === "Tab") {
+          e.preventDefault();
+          applyMention(mentionItems[mentionActive] || mentionItems[0]);
+          return;
+        }
+        if (e.key === "Escape") {
+          e.preventDefault();
+          hideMentionMenu();
+          return;
+        }
+      }
+      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        document.getElementById("composer").requestSubmit();
+      }
+    });
+  </script>
+</body>
+</html>
