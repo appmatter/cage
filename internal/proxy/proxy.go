@@ -129,7 +129,9 @@ type StartOptions struct {
 
 // Start launches `cage proxy-serve` in the background and waits for proxy.json.
 func Start(projectRoot, vmID, cageBin string, opts StartOptions) (State, error) {
-	_ = Stop(projectRoot, vmID)
+	if err := Stop(projectRoot, vmID); err != nil {
+		return State{}, err
+	}
 	dir := runDir(projectRoot, vmID)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return State{}, err
@@ -280,7 +282,9 @@ func Stop(projectRoot, vmID string) error {
 	if err != nil {
 		return nil
 	}
-	stopMatchingProcess(st.PID, st.StartTime)
+	if err := stopMatchingProcess(st.PID, st.StartTime); err != nil {
+		return err
+	}
 	_ = os.Remove(proxyStatePath(projectRoot, vmID))
 	_ = os.Remove(readyPath(projectRoot, vmID))
 	_ = os.Remove(httpProxyStatePath(projectRoot, vmID))

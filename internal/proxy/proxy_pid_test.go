@@ -65,10 +65,39 @@ func TestStopDetachedProxyKillsMatchingIdentity(t *testing.T) {
 	if err := Stop(root, id); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := os.Stat(proxyStatePath(root, id)); !os.IsNotExist(err) {
+		t.Fatalf("proxy.json should be removed, err=%v", err)
+	}
 	select {
 	case <-wait:
 	case <-time.After(5 * time.Second):
 		t.Fatal("matching proxy process was not killed")
+	}
+}
+
+func TestStopDetachedProxyClearsDeadProcessState(t *testing.T) {
+	root := t.TempDir()
+	id := "dead-pid"
+	cmd := exec.Command(os.Args[0])
+	cmd.Env = append(os.Environ(), "CAGE_TEST_PROXY_CHILD=1")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	wait := make(chan error, 1)
+	go func() { wait <- cmd.Wait() }()
+
+	if err := WriteState(root, id, State{PID: cmd.Process.Pid, Port: 1, HTTPPort: 2}); err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Process.Kill(); err != nil {
+		t.Fatal(err)
+	}
+	<-wait
+	if err := Stop(root, id); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(proxyStatePath(root, id)); !os.IsNotExist(err) {
+		t.Fatalf("proxy.json should be removed, err=%v", err)
 	}
 }
 
