@@ -1,29 +1,17 @@
 package network
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
-	"strings"
-	"syscall"
 	"time"
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/appmatter/cage/internal/proxy"
 	netplugin "github.com/appmatter/cage/pkg/plugin/v1/network"
 )
-
-// ProxyState is written under .cage/run/<id>/proxy.json.
-type ProxyState struct {
-	PID            int      `json:"pid"`
-	Port           int      `json:"port"`      // SOCKS5
-	HTTPPort       int      `json:"http_port"` // HTTP CONNECT (+ MITM)
-	BindHost       string   `json:"bind_host,omitempty"`
-	AllowedSources []string `json:"allowed_sources,omitempty"` // guest IPv4s
-}
 
 // RunDir is .cage/run/<vmID> under projectRoot.
 func RunDir(projectRoot, vmID string) string {
@@ -31,264 +19,6 @@ func RunDir(projectRoot, vmID string) string {
 		projectRoot = "."
 	}
 	return filepath.Join(projectRoot, ".cage", "run", vmID)
-}
-
-func proxyStatePath(projectRoot, vmID string) string {
-	return filepath.Join(RunDir(projectRoot, vmID), "proxy.json")
-}
-
-func egressConfigPath(projectRoot, vmID string) string {
-	return filepath.Join(RunDir(projectRoot, vmID), "egress.yaml")
-}
-
-func httpProxyConfigPath(projectRoot, vmID string) string {
-	return filepath.Join(RunDir(projectRoot, vmID), "http-proxy.yaml")
-}
-
-func httpProxyStatePath(projectRoot, vmID string) string {
-	return filepath.Join(RunDir(projectRoot, vmID), "http-proxy.json")
-}
-
-// HTTPProxyPorts is name → listen port under .cage/run/<id>/http-proxy.json.
-type HTTPProxyPorts map[string]int
-
-// WriteHTTPProxyState persists http-proxy.json.
-func WriteHTTPProxyState(projectRoot, vmID string, ports HTTPProxyPorts) error {
-	dir := RunDir(projectRoot, vmID)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-	type entry struct {
-		Port int `json:"port"`
-	}
-	wrapped := map[string]entry{}
-	for k, p := range ports {
-		wrapped[k] = entry{Port: p}
-	}
-	b, err := json.MarshalIndent(wrapped, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(httpProxyStatePath(projectRoot, vmID), append(b, '\n'), 0o644)
-}
-
-// ReadHTTPProxyState loads http-proxy.json if present.
-func ReadHTTPProxyState(projectRoot, vmID string) (HTTPProxyPorts, error) {
-	b, err := os.ReadFile(httpProxyStatePath(projectRoot, vmID))
-	if err != nil {
-		return nil, err
-	}
-	var wrapped map[string]struct {
-		Port int `json:"port"`
-	}
-	if err := json.Unmarshal(b, &wrapped); err != nil {
-		return nil, err
-	}
-	out := HTTPProxyPorts{}
-	for k, v := range wrapped {
-		out[k] = v.Port
-	}
-	return out, nil
-}
-
-// StartDetachedProxyOpts configures the detached proxy-serve child.
-type StartDetachedProxyOpts struct {
-	EgressYAML            []byte
-	HTTPProxyYAML         []byte // templates → .cage/run/<id>/http-proxy.yaml (no secret values)
-	HTTPProxyResolvedYAML []byte // optional substituted yaml for Configure only (temp file)
-	Logging               bool
-	ConfigPath            string
-	DenyHTTP              bool
-	DenyMessage           string
-	Softnet               bool     // host-only softnet active; advisory SOFTNET log when Logging
-	MITM                  bool     // HTTPS break/re-encrypt (default on when proxy enabled)
-	AllowedSources        []string // guest IPv4s allowed to dial this proxy
-}
-
-// StartDetachedProxy launches `cage proxy-serve` in the background and waits for proxy.json.
-func StartDetachedProxy(projectRoot, vmID, cageBin string, opts StartDetachedProxyOpts) (ProxyState, error) {
-	_ = StopDetachedProxy(projectRoot, vmID)
-	dir := RunDir(projectRoot, vmID)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return ProxyState{}, err
-	}
-	egPath := egressConfigPath(projectRoot, vmID)
-	eg := opts.EgressYAML
-	if len(eg) == 0 {
-		eg = []byte("{}\n")
-	}
-	if err := os.WriteFile(egPath, eg, 0o644); err != nil {
-		return ProxyState{}, err
-	}
-	hpPath := ""
-	hpResolvedPath := ""
-	if len(opts.HTTPProxyYAML) > 0 && string(opts.HTTPProxyYAML) != "{}\n" && string(opts.HTTPProxyYAML) != "null\n" {
-		hpPath = httpProxyConfigPath(projectRoot, vmID)
-		if err := os.WriteFile(hpPath, opts.HTTPProxyYAML, 0o644); err != nil {
-			return ProxyState{}, err
-		}
-		if len(opts.HTTPProxyResolvedYAML) > 0 {
-			f, err := os.CreateTemp("", "cage-http-proxy-resolved-*.yaml")
-			if err != nil {
-				return ProxyState{}, err
-			}
-			hpResolvedPath = f.Name()
-			if err := f.Chmod(0o600); err != nil {
-				f.Close()
-				_ = os.Remove(hpResolvedPath)
-				return ProxyState{}, err
-			}
-			if _, err := f.Write(opts.HTTPProxyResolvedYAML); err != nil {
-				f.Close()
-				_ = os.Remove(hpResolvedPath)
-				return ProxyState{}, err
-			}
-			if err := f.Close(); err != nil {
-				_ = os.Remove(hpResolvedPath)
-				return ProxyState{}, err
-			}
-		}
-	} else {
-		_ = os.Remove(httpProxyConfigPath(projectRoot, vmID))
-		_ = os.Remove(httpProxyStatePath(projectRoot, vmID))
-	}
-	ready := filepath.Join(dir, "proxy.ready")
-	_ = os.Remove(ready)
-	_ = os.Remove(proxyStatePath(projectRoot, vmID))
-
-	args := []string{"proxy-serve",
-		"--project", projectRoot,
-		"--id", vmID,
-		"--egress", egPath,
-		"--ready", ready,
-	}
-	if hpPath != "" {
-		args = append(args, "--http-proxy", hpPath)
-	}
-	if hpResolvedPath != "" {
-		args = append(args, "--http-proxy-resolved", hpResolvedPath)
-	}
-	if opts.ConfigPath != "" {
-		args = append(args, "--config", opts.ConfigPath)
-	}
-	if opts.Logging {
-		args = append(args, "--log")
-	}
-	if opts.Softnet {
-		args = append(args, "--softnet")
-	}
-	if opts.DenyHTTP {
-		args = append(args, "--deny-http")
-		if opts.DenyMessage != "" {
-			args = append(args, "--deny-message", opts.DenyMessage)
-		}
-	}
-	if opts.MITM {
-		args = append(args, "--mitm")
-	}
-	for _, ip := range opts.AllowedSources {
-		if ip != "" {
-			args = append(args, "--allow-ip", ip)
-		}
-	}
-	cmd := exec.Command(cageBin, args...)
-	// Detach from the operator TTY — traffic stays in proxy.log; follow with `cage vm logs -f`.
-	devNull, err := os.OpenFile(os.DevNull, os.O_RDWR, 0)
-	if err != nil {
-		return ProxyState{}, fmt.Errorf("proxy-serve open %s: %w", os.DevNull, err)
-	}
-	defer devNull.Close()
-	cmd.Stdin = devNull
-	cmd.Stdout = devNull
-	cmd.Stderr = devNull
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-	if err := cmd.Start(); err != nil {
-		if hpResolvedPath != "" {
-			_ = os.Remove(hpResolvedPath)
-		}
-		return ProxyState{}, fmt.Errorf("proxy-serve start: %w", err)
-	}
-
-	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) {
-		if _, err := os.Stat(ready); err == nil {
-			break
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	st, err := ReadProxyState(projectRoot, vmID)
-	if err != nil {
-		_ = cmd.Process.Kill()
-		return ProxyState{}, fmt.Errorf("proxy ready: %w", err)
-	}
-	return st, nil
-}
-
-// ReadProxyState loads proxy.json if present.
-func ReadProxyState(projectRoot, vmID string) (ProxyState, error) {
-	b, err := os.ReadFile(proxyStatePath(projectRoot, vmID))
-	if err != nil {
-		return ProxyState{}, err
-	}
-	var st ProxyState
-	if err := json.Unmarshal(b, &st); err != nil {
-		return ProxyState{}, err
-	}
-	return st, nil
-}
-
-// WriteProxyState persists proxy.json.
-func WriteProxyState(projectRoot, vmID string, st ProxyState) error {
-	dir := RunDir(projectRoot, vmID)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-	b, err := json.MarshalIndent(st, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(proxyStatePath(projectRoot, vmID), append(b, '\n'), 0o644)
-}
-
-// StopDetachedProxy kills the proxy process for vmID if running.
-func StopDetachedProxy(projectRoot, vmID string) error {
-	st, err := ReadProxyState(projectRoot, vmID)
-	if err != nil {
-		return nil
-	}
-	if st.PID > 0 && isCageProxyPID(st.PID) {
-		_ = syscall.Kill(st.PID, syscall.SIGTERM)
-		deadline := time.Now().Add(3 * time.Second)
-		for time.Now().Before(deadline) {
-			if err := syscall.Kill(st.PID, 0); err != nil {
-				break
-			}
-			time.Sleep(50 * time.Millisecond)
-		}
-		if isCageProxyPID(st.PID) {
-			_ = syscall.Kill(st.PID, syscall.SIGKILL)
-		}
-	}
-	_ = os.Remove(proxyStatePath(projectRoot, vmID))
-	_ = os.Remove(filepath.Join(RunDir(projectRoot, vmID), "proxy.ready"))
-	_ = os.Remove(httpProxyStatePath(projectRoot, vmID))
-	return nil
-}
-
-// isCageProxyPID reports whether pid looks like a live cage proxy-serve process.
-func isCageProxyPID(pid int) bool {
-	if pid <= 0 {
-		return false
-	}
-	if err := syscall.Kill(pid, 0); err != nil {
-		return false
-	}
-	out, err := exec.Command("ps", "-p", strconv.Itoa(pid), "-o", "args=").Output()
-	if err != nil {
-		return false
-	}
-	args := string(out)
-	return strings.Contains(args, "proxy-serve")
 }
 
 // EgressReloadOpts wires hot reload from cage config and/or egress.yaml.
@@ -393,19 +123,19 @@ func ServeProxyForeground(opts ServeProxyOpts) error {
 			return err
 		}
 		defer opts.HTTPProxy.Close()
-		if err := WriteHTTPProxyState(opts.ProjectRoot, opts.VMID, opts.HTTPProxy.Ports()); err != nil {
+		if err := proxy.WriteHTTPPorts(opts.ProjectRoot, opts.VMID, opts.HTTPProxy.Ports()); err != nil {
 			_ = srv.Close()
 			return err
 		}
 	}
-	st := ProxyState{
+	st := proxy.State{
 		PID:            os.Getpid(),
 		Port:           srv.Port(),
 		HTTPPort:       httpSrv.Port(),
 		BindHost:       bindHost,
 		AllowedSources: append([]string{}, opts.AllowedSources...),
 	}
-	if err := WriteProxyState(opts.ProjectRoot, opts.VMID, st); err != nil {
+	if err := proxy.WriteState(opts.ProjectRoot, opts.VMID, st); err != nil {
 		_ = srv.Close()
 		return err
 	}

@@ -7,12 +7,14 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 export default function (pi: ExtensionAPI) {
 	let edited = false;
 	let tested = false;
+	let otherGOOS = false;
 	let nudges = 0;
 	let pendingNudge = false;
 
 	const reset = () => {
 		edited = false;
 		tested = false;
+		otherGOOS = false;
 		nudges = 0;
 	};
 
@@ -29,6 +31,12 @@ export default function (pi: ExtensionAPI) {
 		const name = event.toolName ?? "";
 		if (name === "write" || name === "edit") {
 			edited = true;
+			const input = event.input as { path?: string; file_path?: string; filePath?: string; content?: string };
+			const path = String(input?.path ?? input?.file_path ?? input?.filePath ?? "");
+			const content = String(input?.content ?? "");
+			if (/_(darwin|windows)\.go$/.test(path) || /\/\/go:build\s+(darwin|windows)\b/.test(content)) {
+				otherGOOS = true;
+			}
 		}
 	});
 
@@ -52,7 +60,8 @@ export default function (pi: ExtensionAPI) {
 		}
 		const text = lastAssistantText(event.messages);
 		const hasEvidence = /Evidence/i.test(text) && /Validation/i.test(text);
-		if (tested && hasEvidence) {
+		const blockedOtherGOOS = /BLOCKED/i.test(text);
+		if (tested && hasEvidence && (!otherGOOS || blockedOtherGOOS)) {
 			return;
 		}
 		nudges++;
@@ -60,6 +69,9 @@ export default function (pi: ExtensionAPI) {
 		const missing = [
 			!tested ? "run tests for packages you changed (default: go test ./...)" : "",
 			!hasEvidence ? "end with Evidence + Validation sections" : "",
+			otherGOOS && !blockedOtherGOOS
+				? "Darwin/Windows files are unverified on this Linux guest; Status: BLOCKED for that OS"
+				: "",
 		]
 			.filter(Boolean)
 			.join("; ");
