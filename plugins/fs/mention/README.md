@@ -1,6 +1,8 @@
 # `fs.plugins.mention`
 
-Installable **fs** plugin for host-side @mentions and search. Does **not** grant the agent filesystem access — that is `fs.mount` / `fs.copy` alone.
+Installable **fs** plugin for host-side @mentions and search. Index policy is independent of `fs.mount` and `fs.copy`.
+
+A selected guest-visible file is referenced by its guest path. A selected host-only file is sent as a bounded snapshot. A host-only directory is sent as a bounded recursive listing. Absolute host paths never leave Cage.
 
 ## Fields
 
@@ -24,6 +26,12 @@ fs:
         - "**/.cage/**"
         - "**/.env"
 ```
+
+## Path mapping
+
+Cage supplies resolved mount and copy mappings to the plugin. `flat` maps targets below `runtime.workdir`; `host` maps them below `/`. A result includes its project-relative path, `file` or `directory` kind, and guest path when visible to the VM.
+
+See [requirements](docs/requirements.md).
 
 ## Related config
 

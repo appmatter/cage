@@ -11,6 +11,7 @@ import (
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/go-plugin"
 
+	fsplugin "github.com/appmatter/cage/pkg/plugin/v1/fs"
 	netplugin "github.com/appmatter/cage/pkg/plugin/v1/network"
 	runtimeplugin "github.com/appmatter/cage/pkg/plugin/v1/runtime"
 	secretsplugin "github.com/appmatter/cage/pkg/plugin/v1/secrets"
@@ -192,6 +193,19 @@ func (c *HooksClient) Close() {
 	}
 }
 
+// FSClient is a live generic fs plugin connection.
+type FSClient struct {
+	client *plugin.Client
+	Plugin fsplugin.Plugin
+}
+
+// Close kills the plugin process.
+func (c *FSClient) Close() {
+	if c != nil && c.client != nil {
+		c.client.Kill()
+	}
+}
+
 // NetworkFilterClient is a live network filter plugin connection.
 type NetworkFilterClient struct {
 	client *plugin.Client
@@ -296,6 +310,36 @@ func DispenseRuntimeHooks(cmdPath string) (*HooksClient, error) {
 		return nil, fmt.Errorf("unexpected plugin type %T", raw)
 	}
 	return &HooksClient{client: client, Hooks: h}, nil
+}
+
+// DispenseFS launches a generic fs plugin binary.
+func DispenseFS(cmdPath string) (*FSClient, error) {
+	client := plugin.NewClient(&plugin.ClientConfig{
+		HandshakeConfig: fsplugin.Handshake,
+		Plugins: map[string]plugin.Plugin{
+			fsplugin.PluginName: &fsplugin.RPCPlugin{},
+		},
+		Cmd:              exec.Command(cmdPath),
+		AllowedProtocols: []plugin.Protocol{plugin.ProtocolNetRPC},
+		SyncStderr:       os.Stderr,
+		Logger:           hclog.New(&hclog.LoggerOptions{Name: "plugin", Output: io.Discard, Level: hclog.Error}),
+	})
+	rpcClient, err := client.Client()
+	if err != nil {
+		client.Kill()
+		return nil, err
+	}
+	raw, err := rpcClient.Dispense(fsplugin.PluginName)
+	if err != nil {
+		client.Kill()
+		return nil, err
+	}
+	p, ok := raw.(fsplugin.Plugin)
+	if !ok {
+		client.Kill()
+		return nil, fmt.Errorf("unexpected plugin type %T", raw)
+	}
+	return &FSClient{client: client, Plugin: p}, nil
 }
 
 // DispenseNetworkFilter launches a network filter plugin binary.
